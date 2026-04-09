@@ -7,8 +7,13 @@ Each CSV is mapped to its own Kafka topic:
     feedbacks.csv         → maya_feedbacks
     whatsapp_messages.csv → maya_whatsapp_messages
 
+Modes:
+    batch  — Produce all rows from CSV files once (default)
+    stream — Continuously replay CSV rows to simulate live stream
+
 Usage:
-    python kafka_csv_producer.py                        # produce ALL CSVs
+    python kafka_csv_producer.py                        # produce ALL CSVs (batch)
+    python kafka_csv_producer.py --mode stream           # continuous streaming
     python kafka_csv_producer.py --files users sessions  # produce only selected
 
 Requires:
@@ -54,6 +59,34 @@ def delivery_callback(err, msg):
         )
 
 
+# Graph metadata for each CSV type (helps downstream GNN graph updates)
+GRAPH_METADATA = {
+    "users": {
+        "node_type": "user",
+        "edge_types": ["has_session", "gave_feedback"],
+        "id_field": "id",
+    },
+    "sessions": {
+        "node_type": "session",
+        "edge_types": ["belongs_to", "contains", "has_feedback"],
+        "id_field": "id",
+        "parent_field": "user_id",
+    },
+    "whatsapp_messages": {
+        "node_type": "message",
+        "edge_types": ["in_session", "followed_by"],
+        "id_field": "id",
+        "parent_field": "session_id",
+    },
+    "feedbacks": {
+        "node_type": "feedback",
+        "edge_types": ["from_user", "about_session"],
+        "id_field": "id",
+        "parent_field": "user_id",
+    },
+}
+
+
 def clean_row(row: dict) -> dict:
     """
     Sanitise a CSV row before serialising to JSON:
@@ -82,9 +115,13 @@ def clean_row(row: dict) -> dict:
     return cleaned
 
 
-def produce_csv(producer: Producer, csv_name: str, topic: str, delay: float = 0.5) -> int:
+def produce_csv(producer: Producer, csv_name: str, topic: str,
+                delay: float = 0.5, enrich: bool = True) -> int:
     """
     Read a single CSV file and produce every row as a JSON message.
+
+    If enrich=True, adds graph_metadata to each message for downstream
+    GNN graph construction.
 
     Returns the number of rows produced.
     """
@@ -97,11 +134,22 @@ def produce_csv(producer: Producer, csv_name: str, topic: str, delay: float = 0.
     print(f"📂  {csv_path.name}  →  topic: {topic}")
     print(f"{'─' * 60}")
 
+    meta = GRAPH_METADATA.get(csv_name, {})
+
     produced = 0
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for idx, row in enumerate(reader, start=1):
             payload = clean_row(row)
+
+            # Enrich with graph metadata for GNN downstream
+            if enrich and meta:
+                payload["_graph_meta"] = {
+                    "node_type": meta.get("node_type"),
+                    "edge_types": meta.get("edge_types"),
+                    "source": csv_name,
+                }
+
             value_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
             # Use the row's "id" as the Kafka key if available, else row index
@@ -129,6 +177,30 @@ def produce_csv(producer: Producer, csv_name: str, topic: str, delay: float = 0.
     return produced
 
 
+def stream_continuous(producer: Producer, files: list, delay: float = 1.0):
+    """
+    Continuously replay CSV data to simulate a live event stream.
+    Cycles through files repeatedly until interrupted.
+    """
+    print("\n" + "═" * 60)
+    print("🔁  Starting continuous stream mode...")
+    print("    Press Ctrl+C to stop")
+    print("═" * 60)
+
+    cycle = 0
+    try:
+        while True:
+            cycle += 1
+            print(f"\n🔄  Stream cycle {cycle}")
+            for csv_name in files:
+                topic = CSV_TOPIC_MAP[csv_name]
+                produce_csv(producer, csv_name, topic, delay=delay, enrich=True)
+            print(f"    Cycle {cycle} complete. Restarting in 5s...")
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print(f"\n⏹  Stream stopped after {cycle} cycles")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -153,9 +225,15 @@ def main():
         default=ROW_DELAY_SECONDS,
         help=f"Seconds between rows (default: {ROW_DELAY_SECONDS}).",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["batch", "stream"],
+        default="batch",
+        help="batch: produce once and exit. stream: continuously replay (default: batch).",
+    )
     args = parser.parse_args()
 
-    # ── Create Kafka producer ────────────────────────────────────────────
+    # ── Create Kafka producer ────────────────────────────────────────
     conf = {
         "bootstrap.servers": args.broker,
         "client.id": "maya-csv-producer",
@@ -166,18 +244,22 @@ def main():
     }
     producer = Producer(conf)
     print(f"🚀  Connected to Kafka @ {args.broker}")
+    print(f"    Mode: {args.mode}")
 
-    total_rows = 0
-    start = time.time()
+    if args.mode == "stream":
+        stream_continuous(producer, args.files, delay=args.delay)
+    else:
+        total_rows = 0
+        start = time.time()
 
-    for csv_name in args.files:
-        topic = CSV_TOPIC_MAP[csv_name]
-        total_rows += produce_csv(producer, csv_name, topic, delay=args.delay)
+        for csv_name in args.files:
+            topic = CSV_TOPIC_MAP[csv_name]
+            total_rows += produce_csv(producer, csv_name, topic, delay=args.delay)
 
-    elapsed = time.time() - start
-    print(f"\n{'═' * 60}")
-    print(f"🏁  Done — {total_rows} total rows in {elapsed:.1f}s")
-    print(f"{'═' * 60}")
+        elapsed = time.time() - start
+        print(f"\n{'═' * 60}")
+        print(f"🏁  Done — {total_rows} total rows in {elapsed:.1f}s")
+        print(f"{'═' * 60}")
 
 
 if __name__ == "__main__":
