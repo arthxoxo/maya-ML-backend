@@ -217,8 +217,18 @@ def main() -> None:
 
     base = emb[["user_id", "persona_id"]].merge(users, on="user_id", how="left")
     base = base.merge(sent, on="user_id", how="left")
-    base["avg_sentiment"] = pd.to_numeric(base.get("avg_sentiment"), errors="coerce").fillna(0.0)
-    base["msg_count"] = pd.to_numeric(base.get("msg_count"), errors="coerce").fillna(0.0)
+    if "avg_sentiment" not in base.columns:
+        base["avg_sentiment"] = 0.0
+    if "msg_count" not in base.columns:
+        base["msg_count"] = 0.0
+    if "pos_ratio" not in base.columns:
+        base["pos_ratio"] = 0.0
+    if "neg_ratio" not in base.columns:
+        base["neg_ratio"] = 0.0
+    base["avg_sentiment"] = pd.to_numeric(base["avg_sentiment"], errors="coerce").fillna(0.0)
+    base["msg_count"] = pd.to_numeric(base["msg_count"], errors="coerce").fillna(0.0)
+    base["pos_ratio"] = pd.to_numeric(base["pos_ratio"], errors="coerce").fillna(0.0)
+    base["neg_ratio"] = pd.to_numeric(base["neg_ratio"], errors="coerce").fillna(0.0)
     base["dominant_sentiment"] = base.get("dominant_sentiment", "neutral").fillna("neutral")
 
     # Persona naming using cluster profile summaries.

@@ -41,6 +41,9 @@ CSV_TOPIC_MAP = {
 
 ROW_DELAY_SECONDS = 0.5  # delay between rows to simulate live stream
 
+# Some rows (summaries/transcriptions) can exceed default CSV parser size.
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def delivery_callback(err, msg):

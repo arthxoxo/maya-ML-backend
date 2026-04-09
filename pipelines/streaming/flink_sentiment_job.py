@@ -32,6 +32,20 @@ FLINK_OUTPUT_DIR = str(FLINK_ENGINEERED_DIR)
 JARS_DIR = str(BASE_DIR / "lib")
 
 
+def _resolve_java_home() -> str:
+    candidates = [
+        os.getenv("JAVA_HOME", "").strip(),
+        "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home",
+        "/opt/homebrew/opt/openjdk@17",
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        if Path(c, "bin", "java").exists():
+            return c
+    return ""
+
+
 _HF_SENTIMENT_PIPE = None
 _HF_SENTIMENT_UNAVAILABLE = False
 _NEGATIVE_TERMS = {
@@ -130,11 +144,13 @@ def sentiment_label(score: float) -> str:
 
 
 def main() -> None:
+    java_home = _resolve_java_home()
+    if java_home:
+        os.environ["JAVA_HOME"] = java_home
+
     env_settings = EnvironmentSettings.in_streaming_mode()
     t_env = TableEnvironment.create(env_settings)
     t_env.get_config().set("parallelism.default", "1")
-
-    os.environ["JAVA_HOME"] = "/opt/homebrew/opt/openjdk@17"
 
     kafka_jar_candidates = list(Path(JARS_DIR).glob("flink-sql-connector-kafka-*.jar"))
     if not kafka_jar_candidates:
@@ -423,6 +439,8 @@ def main() -> None:
             role,
             message,
             created_at,
+            updated_at,
+            deleted_at,
             input_tokens,
             output_tokens,
             model_name,
@@ -439,6 +457,8 @@ def main() -> None:
                 role,
                 message,
                 created_at,
+                updated_at,
+                deleted_at,
                 input_tokens,
                 output_tokens,
                 model_name,

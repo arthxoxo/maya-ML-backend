@@ -35,7 +35,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
-from app_config import EMBEDDINGS_ARTIFACT_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
+from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
 from online_store import load_artifact_df, save_artifact_df
 
 
@@ -79,6 +79,10 @@ def pick_sentiment_file(path_arg: str) -> Path:
     if fallback.exists():
         print(f"[info] Sentiment file not found at {p}, using fallback {fallback}")
         return fallback
+    gnn_fallback = GNN_PREPROCESSED_DIR / "messages_nodes.csv"
+    if gnn_fallback.exists():
+        print(f"[info] Sentiment file not found at {p}, using fallback {gnn_fallback}")
+        return gnn_fallback
     raise FileNotFoundError(f"Could not find sentiment file: {p}")
 
 
@@ -188,6 +192,26 @@ def _normalize_binary_feedback(v) -> Optional[int]:
     return None
 
 
+def _heuristic_polarity(text: str) -> float:
+    s = str(text or "").strip().lower()
+    if not s:
+        return 0.0
+    neg_terms = {
+        "bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful",
+        "slow", "broken", "error", "issue", "problem", "failed", "failure", "crash", "bug",
+    }
+    pos_terms = {
+        "good", "great", "awesome", "nice", "love", "happy", "thanks", "resolved", "perfect", "excellent",
+        "fast", "smooth", "helpful", "fixed", "works", "working",
+    }
+    tokens = [t for t in str(s).replace("!", " ").replace("?", " ").split() if t]
+    if not tokens:
+        return 0.0
+    pos = sum(1 for t in tokens if t in pos_terms)
+    neg = sum(1 for t in tokens if t in neg_terms)
+    return float((pos - neg) / max(len(tokens), 6))
+
+
 def prepare_human_feedback_labels(feedback: pd.DataFrame) -> tuple[pd.DataFrame, Optional[str], int]:
     f = feedback.copy()
     if "user_id" not in f.columns:
@@ -270,7 +294,45 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
     s["sentiment_label_norm"] = s["sentiment_label"].apply(normalize_label)
     s = s[s["sentiment_label_norm"].isin(["positive", "negative"])].copy()
     if s.empty:
-        raise ValueError("No Positive/Negative rows left after filtering sentiment_label")
+        # Recovery path: derive binary labels from sentiment_score if labels are mostly neutral.
+        if "sentiment_score" not in sentiment.columns:
+            raise ValueError("No Positive/Negative rows left after filtering sentiment_label")
+
+        ss = sentiment.copy()
+        if "user_id" not in ss.columns:
+            if "session_id" not in ss.columns:
+                raise ValueError("Sentiment file needs either user_id or session_id for joining")
+            if not sessions_path.exists():
+                raise FileNotFoundError(
+                    f"Sentiment file has no user_id; sessions mapping file not found: {sessions_path}"
+                )
+            sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
+            sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
+            sessions["user_id"] = pd.to_numeric(sessions["user_id"], errors="coerce")
+            ss["session_id"] = pd.to_numeric(ss["session_id"], errors="coerce")
+            ss = ss.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
+
+        ss["user_id"] = pd.to_numeric(ss["user_id"], errors="coerce")
+        ss["sentiment_score"] = pd.to_numeric(ss["sentiment_score"], errors="coerce")
+        ss = ss.dropna(subset=["user_id", "sentiment_score"]).copy()
+        ss = ss[(ss["sentiment_score"] >= 0.05) | (ss["sentiment_score"] <= -0.05)].copy()
+        if ss.empty and "message" in sentiment.columns:
+            ss = sentiment.copy()
+            if "user_id" not in ss.columns and "session_id" in ss.columns and sessions_path.exists():
+                sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
+                sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
+                sessions["user_id"] = pd.to_numeric(sessions["user_id"], errors="coerce")
+                ss["session_id"] = pd.to_numeric(ss["session_id"], errors="coerce")
+                ss = ss.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
+            ss["user_id"] = pd.to_numeric(ss["user_id"], errors="coerce")
+            ss["sentiment_score"] = ss["message"].apply(_heuristic_polarity)
+            ss = ss.dropna(subset=["user_id", "sentiment_score"]).copy()
+            ss = ss[(ss["sentiment_score"] >= 0.02) | (ss["sentiment_score"] <= -0.02)].copy()
+        if ss.empty:
+            raise ValueError("No Positive/Negative rows left after filtering sentiment_label")
+        ss["user_id"] = ss["user_id"].astype(int)
+        ss["sentiment_label_norm"] = np.where(ss["sentiment_score"] > 0, "positive", "negative")
+        s = ss
 
     # Aggregate message-level labels to user-level target via majority vote.
     agg = (

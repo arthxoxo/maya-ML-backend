@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from app_config import BASE_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
+from app_config import BASE_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
 from online_store import load_artifact_df, save_artifact_df
 
 
@@ -47,6 +47,7 @@ def _load_sentiment_messages(sentiment_path: Path, sessions_path: Path) -> pd.Da
     candidates = [
         sentiment_path,
         SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv",
+        GNN_PREPROCESSED_DIR / "messages_nodes.csv",
         BASE_DIR / "sentiment_scores.csv",
     ]
     selected_path = next((p for p in candidates if p.exists()), None)
@@ -83,6 +84,9 @@ def _load_sentiment_messages(sentiment_path: Path, sessions_path: Path) -> pd.Da
     s["user_id"] = pd.to_numeric(s.get("user_id"), errors="coerce")
     s = s.dropna(subset=["user_id"]).copy()
     s["user_id"] = s["user_id"].astype(int)
+    if "sentiment_score" not in s.columns:
+        lbl = s.get("sentiment_label", "neutral").fillna("neutral").astype(str).str.lower().str.strip()
+        s["sentiment_score"] = np.where(lbl.eq("positive"), 0.25, np.where(lbl.eq("negative"), -0.25, 0.0))
     s["sentiment_score"] = pd.to_numeric(s.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
     s["created_at"] = pd.to_datetime(s.get("created_at"), errors="coerce", utc=True)
     s["order_idx"] = np.arange(len(s))

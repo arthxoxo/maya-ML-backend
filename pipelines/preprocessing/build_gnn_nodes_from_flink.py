@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import BASE_DIR, FLINK_ENGINEERED_DIR, GNN_PREPROCESSED_DIR
+from config import BASE_DIR, FLINK_ENGINEERED_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR
 
 
 OUT_DIR = GNN_PREPROCESSED_DIR
@@ -43,7 +43,13 @@ def resolve_flink_input_dir() -> Path:
 def read_flink_dir(dir_path: Path) -> pd.DataFrame:
     if not dir_path.exists():
         return pd.DataFrame()
-    files = sorted([p for p in dir_path.rglob("*") if p.is_file() and not p.name.startswith(".")])
+    files = sorted(
+        [
+            p
+            for p in dir_path.rglob("*")
+            if p.is_file() and not p.name.startswith("_")
+        ]
+    )
     if not files:
         return pd.DataFrame()
 
@@ -56,6 +62,46 @@ def read_flink_dir(dir_path: Path) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def read_secret_csv(filename: str) -> pd.DataFrame:
+    p = SECRET_DATA_DIR / filename
+    if not p.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(p)
+    except Exception:
+        return pd.DataFrame()
+
+
+def align_columns(df: pd.DataFrame, expected_cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for c in expected_cols:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out[expected_cols]
+
+
+def normalize_raw_table(df: pd.DataFrame, expected_cols: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    # Headerless sink files read as numbered columns.
+    if all(isinstance(c, int) for c in df.columns):
+        if df.shape[1] >= len(expected_cols):
+            out = df.iloc[:, : len(expected_cols)].copy()
+            out.columns = expected_cols
+            return out
+        out = df.copy()
+        for _ in range(len(expected_cols) - out.shape[1]):
+            out[out.shape[1]] = pd.NA
+        out = out.iloc[:, : len(expected_cols)].copy()
+        out.columns = expected_cols
+        return out
+
+    # Headered files: keep known columns and add missing.
+    if set(expected_cols).issubset(set(df.columns)):
+        return df[expected_cols].copy()
+    return align_columns(df, expected_cols)
 
 
 def main() -> None:
@@ -85,14 +131,34 @@ def main() -> None:
         "status", "sentiment_score", "sentiment_label",
     ]
 
-    if not users_raw.empty:
-        users_raw.columns = users_cols
-    if not sessions_raw.empty:
-        sessions_raw.columns = sessions_cols
-    if not feedbacks_raw.empty:
-        feedbacks_raw.columns = feedback_cols
-    if not messages_raw.empty:
-        messages_raw.columns = messages_cols
+    # Fallback path for local/offline recovery when Flink sinks are empty.
+    if users_raw.empty:
+        users_secret = read_secret_csv("users.csv")
+        if not users_secret.empty:
+            users_secret = users_secret.rename(columns={"id": "user_id"})
+            users_raw = align_columns(users_secret, users_cols)
+    if sessions_raw.empty:
+        sessions_secret = read_secret_csv("sessions.csv")
+        if not sessions_secret.empty:
+            sessions_secret = sessions_secret.rename(columns={"id": "session_id"})
+            sessions_raw = align_columns(sessions_secret, sessions_cols)
+    if feedbacks_raw.empty:
+        feedback_secret = read_secret_csv("feedbacks.csv")
+        if not feedback_secret.empty:
+            feedback_secret = feedback_secret.rename(columns={"id": "feedback_id"})
+            feedbacks_raw = align_columns(feedback_secret, feedback_cols)
+    if messages_raw.empty:
+        messages_secret = read_secret_csv("whatsapp_messages.csv")
+        if not messages_secret.empty:
+            messages_secret = messages_secret.rename(columns={"id": "message_id"})
+            messages_secret["sentiment_score"] = 0.0
+            messages_secret["sentiment_label"] = "neutral"
+            messages_raw = align_columns(messages_secret, messages_cols)
+
+    users_raw = normalize_raw_table(users_raw, users_cols)
+    sessions_raw = normalize_raw_table(sessions_raw, sessions_cols)
+    feedbacks_raw = normalize_raw_table(feedbacks_raw, feedback_cols)
+    messages_raw = normalize_raw_table(messages_raw, messages_cols)
 
     # Users node table
     users = users_raw.copy()

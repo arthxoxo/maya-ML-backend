@@ -1,44 +1,39 @@
 user_id,messages,actual_volatility,predicted_volatility,prediction_mae,mood_swing_index,risk_flag,trend,recommendation
-53,75,0.18802438973357338,0.011688574852252548,0.12665343709262228,0.9868567267861201,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-47,143,0.1576961770623742,0.01129046917211876,0.11393118287022742,0.8705390132300714,High,Improving,Monitor recent conversation context and collect more timely feedback labels.
-50,139,0.15386665133041946,0.010891849929108643,0.1224567192297372,0.8458124154552331,High,Improving,Monitor recent conversation context and collect more timely feedback labels.
-183,46,0.13833333333333334,0.012144632637500763,0.09872597906245287,0.8282181013541738,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-44,466,0.15182903070645007,0.010317132664213663,0.11384681000805859,0.8222054061764952,High,Improving,Monitor recent conversation context and collect more timely feedback labels.
-48,132,0.1495269988834518,0.009896606910118183,0.09509126000334471,0.802128021628203,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-46,310,0.14670979716858398,0.00963812534607625,0.09224218260327242,0.7849396982709117,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-51,13,0.16354166666666667,0.006605489761568606,0.06992579130455852,0.7557289610960418,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-55,229,0.13322803039651399,0.009812256717123092,0.09718236396901997,0.7433516000744328,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
-54,72,0.12959758551307848,0.009773271468778452,0.09356808192387689,0.7296776300273627,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
-222,16,0.16833333333333333,0.004923397675156593,0.06500422488898039,0.7238170021351477,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
-2,37,0.12453703703703704,0.009301900230639149,0.09431144487462007,0.6985987259873815,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
-37,34,0.12424242424242424,0.009129286885727197,0.09745299926502272,0.6926056515984118,Medium,Worsening,Add recent labeled samples and review time-of-day interaction patterns.
-41,101,0.12458080808080808,0.00846823641989866,0.08400608801973923,0.6747244220029808,Medium,Improving,Add recent labeled samples and review time-of-day interaction patterns.
-202,61,0.11746031746031746,0.009219383283589896,0.08725482839563826,0.6717564363442745,Medium,Worsening,Add recent labeled samples and review time-of-day interaction patterns.
-212,171,0.12479481792717087,0.00795796762485011,0.0854721181516027,0.6607586562723491,Medium,Worsening,Add recent labeled samples and review time-of-day interaction patterns.
-45,412,0.12202938316077003,0.008195145086849815,0.08440457421080048,0.65803384503686,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
-188,108,0.12147381694110665,0.007843079760369628,0.08974977272562683,0.6459669718154462,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-39,39,0.10903311864630823,0.009048450893412033,0.09909460641023132,0.6376974696891315,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-52,186,0.11495580929039576,0.00810690039879311,0.09272891438103104,0.6310373605199344,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-42,193,0.11758695586820585,0.007630536030299719,0.08032281576416682,0.6264047347833034,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-200,980,0.11404415156968783,0.007998815558905435,0.08465246625789326,0.6247708302033133,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-3,30,0.10344827586206896,0.008943713270127773,0.10934528450227597,0.6153722109360642,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-182,29,0.10552721088435373,0.008289554808288812,0.08590772756863208,0.603706686702171,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-199,701,0.1060038368377654,0.007758576870422186,0.0867277878126792,0.5900519610919402,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-189,67,0.11001511225950607,0.006517729015442832,0.07635216419663975,0.5681585476383395,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-35,164,0.10229089020500062,0.007260027490255814,0.08330425801623512,0.5628484589136442,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-34,333,0.10413098674900235,0.0070047728418384065,0.07725241416563781,0.5618534053267505,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-203,65,0.10052083333333334,0.0066274482815060765,0.06815768813044486,0.5384988754606783,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-205,98,0.09100713719270419,0.007381851306143269,0.07486091750260028,0.5273514226618821,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-32,38,0.08996650059150058,0.005607427485239017,0.06543544049588187,0.4726162636945408,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-211,18,0.07058823529411765,0.007145735926719176,0.07333853462478146,0.44995862941853093,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-207,90,0.07743445692883895,0.005913677533375628,0.07384039045356941,0.43811892653735773,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-4,1181,0.07996660820438027,0.005472937041630177,0.0644743524869963,0.4341707299512654,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-184,129,0.08188244047619048,0.004946632250600184,0.06223365235717752,0.4256260150634623,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-23,254,0.0661036629154217,0.004334153407918555,0.055295225972857714,0.3534275864723306,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-186,21,0.08,0.002130687857667605,0.009262109152936878,0.33796483151363826,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-206,166,0.06146681096681097,0.004233261499150543,0.04745157033240399,0.33449036130838006,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-201,58,0.06217627401837928,0.004038743270865204,0.04647825635271147,0.3313370916902371,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
-38,21,0.05,0.004661155631765723,0.05405151951484955,0.3071812310475881,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
-204,147,0.05571665777145229,0.0036753289523008075,0.046419721776820556,0.29853285724157086,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-210,18,0.011764705882352941,0.0012353432054320972,0.023381642904132603,0.07627231413400236,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
-56,22,0.0,0.0,0.014769203029572964,0.0,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+222,16,0.13333333333333333,0.02207263695475246,0.14842524041887373,1.0,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
+3,30,0.12873103448275863,0.0007312681548120011,0.005265461101027375,0.6391593199409925,High,Stable,Monitor recent conversation context and collect more timely feedback labels.
+37,34,0.07979393939393939,0.00783835238777101,0.06309025272583732,0.5132861471955308,High,Stable,Monitor recent conversation context and collect more timely feedback labels.
+51,13,0.07835000000000002,0.0017868473660200834,0.013052164018154145,0.4102898188159532,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
+47,143,0.0526056338028169,0.004256552286835304,0.036646525736001356,0.3239474951037029,High,Stable,Monitor recent conversation context and collect more timely feedback labels.
+46,310,0.05281650485436893,0.003821752530343187,0.03217631305717487,0.31808098607569424,High,Stable,Monitor recent conversation context and collect more timely feedback labels.
+182,29,0.04930357142857143,0.004810826529865153,0.03945604414773351,0.3166389219497565,High,Improving,Monitor recent conversation context and collect more timely feedback labels.
+53,75,0.047546621621621626,0.0031409843068104237,0.03056730820064141,0.28159554260940656,High,Worsening,Monitor recent conversation context and collect more timely feedback labels.
+52,186,0.045170540540540545,0.0033624242684714453,0.03150233788529589,0.2735234625816348,Medium,Improving,Add recent labeled samples and review time-of-day interaction patterns.
+188,108,0.03143971962616822,0.0022904880067352393,0.021459698909602594,0.18958829919666464,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
+212,171,0.027546764705882354,0.0022369243210342564,0.02030103485777751,0.16976079868114674,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
+199,701,0.027542857142857143,0.002099882068319079,0.020407968570315647,0.1675687063465443,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
+48,133,0.02416363636363636,0.0018534998018895426,0.017235231768805533,0.14718818623742577,Medium,Worsening,Add recent labeled samples and review time-of-day interaction patterns.
+55,229,0.023827850877192983,0.0019431154539977962,0.018178891995684687,0.14697224382128116,Medium,Improving,Add recent labeled samples and review time-of-day interaction patterns.
+205,98,0.022746391752577318,0.0021431839951638427,0.020438379670182864,0.14487256483629002,Medium,Stable,Add recent labeled samples and review time-of-day interaction patterns.
+211,18,0.01988235294117646,0.0027383017715894515,0.022212956752628087,0.1403470017201059,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+200,980,0.020662563840653726,0.001665069493364416,0.016461924991325844,0.12713256783498797,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+50,139,0.021214130434782607,0.0013818445275179468,0.017426214734526026,0.12533043117440237,Low,Worsening,Continue periodic monitoring and retrain weekly to catch drift.
+39,39,0.020230263157894734,0.0015412242074186603,0.01408134832238448,0.12306131987348913,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+23,254,0.020028458498023715,0.0015638769775324938,0.017292607119694974,0.1224367211755704,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+2,37,0.018516666666666667,0.001879991514475218,0.0167463104449341,0.12007928108494376,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+206,166,0.01874090909090909,0.0016011302174027463,0.016556967246932675,0.11675063264444636,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+184,129,0.01927265625,0.0011282654479146004,0.012669376775426098,0.1118448077391373,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+204,147,0.014078082191780823,0.001175127444329901,0.011963968371248824,0.08726433755970746,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+203,65,0.01444765625,0.0007643923246567803,0.011176481356909662,0.08255309230723476,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+189,67,0.013356060606060606,0.0010116371839981654,0.0185684519997498,0.08115206026242436,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+42,193,0.012489843749999998,0.0009740714161560628,0.010542212158120614,0.07633358258670145,Low,Improving,Continue periodic monitoring and retrain weekly to catch drift.
+207,90,0.012231460674157304,0.001023616887525552,0.010881528637383314,0.07585959460306248,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+4,1185,0.012164484797297297,0.0009641649957716965,0.011253237082017031,0.07459037418922013,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+54,72,0.011859154929577464,0.0009280038287951833,0.01007398527690384,0.07252849296823216,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+202,61,0.01111,0.0010123031231789635,0.010811312682048048,0.07021307443035432,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+45,412,0.010439537712895379,0.0008149617085829562,0.009302684233442068,0.06381537986210858,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+183,46,0.009537777777777779,0.0008966555139301596,0.009272394628313026,0.06071469736770556,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+201,58,0.008652631578947368,0.0008816313549724161,0.01044845103751868,0.056161375510547396,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+56,22,0.0,0.0,0.0036398570518940687,0.0,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+210,18,0.0,0.0,0.0036398570518940687,0.0,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+32,38,0.0,0.0,0.0036398570518940687,0.0,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.
+186,21,0.0,0.0,0.0036398570518940687,0.0,Low,Stable,Continue periodic monitoring and retrain weekly to catch drift.

@@ -51,22 +51,44 @@ PERSONA_ARTIFACT_DIR = getattr(cfg, "PERSONA_ARTIFACT_DIR", BASE_DIR / "artifact
 SENTIMENT_ARTIFACT_DIR = getattr(cfg, "SENTIMENT_ARTIFACT_DIR", BASE_DIR / "artifacts" / "sentiment")
 
 
+def _first_existing_path(*candidates: Path) -> Path:
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
+
+
 OUTPUT_DIR = GNN_OUTPUT_DIR
 PREPROCESSED_DIR = GNN_PREPROCESSED_DIR
 XGB_SHAP_PLOT_PATH = XGB_ARTIFACT_DIR / "shap_summary.png"
-XGB_SHAP_IMPORTANCE_PATH = XGB_ARTIFACT_DIR / "xgb_embedding_feature_importance.csv"
+XGB_SHAP_IMPORTANCE_PATH = _first_existing_path(
+    XGB_ARTIFACT_DIR / "xgb_embedding_feature_importance.csv",
+    XGB_ARTIFACT_DIR / "xgb_embedding_feature_importance_merged.csv",
+)
 XGB_PREDICTIONS_PATH = XGB_ARTIFACT_DIR / "xgb_user_predictions.csv"
 EMBEDDING_LABELS_PATH = EMBEDDINGS_ARTIFACT_DIR / "embedding_dimension_labels.csv"
-USER_EMBEDDINGS_PATH = EMBEDDINGS_ARTIFACT_DIR / "user_embeddings.csv"
+USER_EMBEDDINGS_PATH = _first_existing_path(
+    EMBEDDINGS_ARTIFACT_DIR / "user_embeddings.csv",
+    OUTPUT_DIR / "user_embeddings.csv",
+)
 PERSONA_TABLE_PATH = PERSONA_ARTIFACT_DIR / "user_persona_table.csv"
 PERSONA_PROFILE_PATH = PERSONA_ARTIFACT_DIR / "persona_profiles.csv"
 PERSONA_IMPORTANCE_PATH = PERSONA_ARTIFACT_DIR / "persona_feature_importance.csv"
 PERSONA_SHAP_PLOT_PATH = PERSONA_ARTIFACT_DIR / "persona_shap_summary.png"
 PERSONA_USER_SHAP_PATH = PERSONA_ARTIFACT_DIR / "persona_user_feature_contributions.csv"
-SENTIMENT_SCORES_PATH = SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"
+SENTIMENT_SCORES_PATH = _first_existing_path(
+    SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv",
+    BASE_DIR / "sentiment_scores.csv",
+)
 GRU_MOOD_SWING_SUMMARY_PATH = SENTIMENT_ARTIFACT_DIR / "gru_mood_swing_summary.csv"
 GRU_MOOD_TRAINING_REPORT_PATH = SENTIMENT_ARTIFACT_DIR / "gru_mood_training_report.csv"
-SESSIONS_SOURCE_PATH = SECRET_DATA_DIR / "sessions.csv"
+SESSIONS_SOURCE_PATH = _first_existing_path(
+    SECRET_DATA_DIR / "sessions.csv",
+    BASE_DIR / "sessions.csv",
+)
+RAW_USERS_PATH = _first_existing_path(SECRET_DATA_DIR / "users.csv", BASE_DIR / "users.csv")
+RAW_SESSIONS_PATH = _first_existing_path(SECRET_DATA_DIR / "sessions.csv", BASE_DIR / "sessions.csv")
+RAW_MESSAGES_PATH = _first_existing_path(SECRET_DATA_DIR / "whatsapp_messages.csv", BASE_DIR / "whatsapp_messages.csv")
 HF_SENTIMENT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 HF_IRONY_MODEL = "cardiffnlp/twitter-roberta-base-irony"
 REDIS_KEY_PREFIX = os.getenv("MAYA_REDIS_PREFIX", "maya:dashboard")
@@ -590,33 +612,36 @@ def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
 @st.cache_data(show_spinner=False)
 def load_user_directory() -> pd.DataFrame:
-    users_r = load_df_from_redis("users_nodes", expected_cols=["user_id", "first_name", "last_name", "full_name"])
-    if not users_r.empty:
-        users = users_r.copy()
-        users["user_id"] = pd.to_numeric(users.get("user_id"), errors="coerce")
-        users = users.dropna(subset=["user_id"]).copy()
-        users["user_id"] = users["user_id"].astype(int)
-        users["first_name"] = users.get("first_name", "").fillna("").astype(str).str.strip()
-        users["last_name"] = users.get("last_name", "").fillna("").astype(str).str.strip()
-        users["full_name"] = users.get("full_name", "").fillna("").astype(str).str.strip()
-        users.loc[users["full_name"].eq(""), "full_name"] = (users["first_name"] + " " + users["last_name"]).str.strip()
-        users["display_name"] = users["full_name"].replace("", np.nan).fillna("User") + " (" + users["user_id"].astype(str) + ")"
-        return users[["user_id", "display_name"]].drop_duplicates("user_id")
+    frames: list[pd.DataFrame] = []
+
+    users_raw = load_df_from_redis("users_nodes", expected_cols=["user_id", "first_name", "last_name", "full_name"])
+    if not users_raw.empty:
+        frames.append(users_raw.copy())
 
     users_path = PREPROCESSED_DIR / "users_nodes.csv"
     if users_path.exists():
-        users = pd.read_csv(users_path)
-        users["user_id"] = pd.to_numeric(users.get("user_id"), errors="coerce")
-        users = users.dropna(subset=["user_id"]).copy()
-        users["user_id"] = users["user_id"].astype(int)
-        users["first_name"] = users.get("first_name", "").fillna("").astype(str).str.strip()
-        users["last_name"] = users.get("last_name", "").fillna("").astype(str).str.strip()
-        users["full_name"] = users.get("full_name", "").fillna("").astype(str).str.strip()
-        users.loc[users["full_name"].eq(""), "full_name"] = (users["first_name"] + " " + users["last_name"]).str.strip()
-        users["display_name"] = users["full_name"].replace("", np.nan).fillna("User") + " (" + users["user_id"].astype(str) + ")"
-        return users[["user_id", "display_name"]].drop_duplicates("user_id")
+        frames.append(pd.read_csv(users_path))
 
-    return pd.DataFrame(columns=["user_id", "display_name"])
+    # Strong fallback: raw users table from secret_data.
+    if RAW_USERS_PATH.exists():
+        raw = pd.read_csv(RAW_USERS_PATH)
+        raw = raw.rename(columns={"id": "user_id"})
+        frames.append(raw)
+
+    if not frames:
+        return pd.DataFrame(columns=["user_id", "display_name"])
+
+    users = pd.concat(frames, ignore_index=True, sort=False)
+    users["user_id"] = pd.to_numeric(users.get("user_id"), errors="coerce")
+    users = users.dropna(subset=["user_id"]).copy()
+    users["user_id"] = users["user_id"].astype(int)
+    users["first_name"] = users.get("first_name", "").fillna("").astype(str).str.strip()
+    users["last_name"] = users.get("last_name", "").fillna("").astype(str).str.strip()
+    users["full_name"] = users.get("full_name", "").fillna("").astype(str).str.strip()
+    users.loc[users["full_name"].eq(""), "full_name"] = (users["first_name"] + " " + users["last_name"]).str.strip()
+    users = users.sort_values(["user_id", "full_name"], ascending=[True, False]).drop_duplicates("user_id", keep="first")
+    users["display_name"] = users["full_name"].replace("", np.nan).fillna("User") + " (" + users["user_id"].astype(str) + ")"
+    return users[["user_id", "display_name"]].drop_duplicates("user_id")
 
 
 @st.cache_data(show_spinner=False)
@@ -670,6 +695,34 @@ def apply_negative_boost_from_text(
     boost_mask = heur_pol < (base_pol - 0.05)
     out[polarity_col] = np.where(boost_mask, 0.65 * base_pol + 0.35 * heur_pol, base_pol)
     out[polarity_col] = pd.to_numeric(out[polarity_col], errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    return out
+
+
+def repair_flat_sentiment_scores(
+    df: pd.DataFrame,
+    text_col: str = "message",
+    score_col: str = "sentiment_score",
+    label_col: str = "sentiment_label",
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+    if text_col not in df.columns:
+        return df
+
+    out = df.copy()
+    score = pd.to_numeric(out.get(score_col), errors="coerce").fillna(0.0)
+    label = out.get(label_col, "").fillna("").astype(str).str.lower().str.strip()
+
+    flat_ratio = float((score.abs() <= 1e-9).mean())
+    neutral_ratio = float((label == "neutral").mean()) if len(label) else 1.0
+    if flat_ratio < 0.80 and neutral_ratio < 0.90:
+        return out
+
+    heur = out[text_col].fillna("").astype(str).apply(lambda t: float(heuristic_sentiment_fallback(t)[0]))
+    weak_mask = score.abs() < 0.03
+    blended = np.where(weak_mask, heur, 0.75 * score + 0.25 * heur)
+    out[score_col] = pd.Series(blended, index=out.index, dtype="float64").fillna(0.0).clip(-1.0, 1.0)
+    out[label_col] = out[score_col].apply(polarity_label)
     return out
 
 
@@ -958,6 +1011,38 @@ def load_sentiment_table() -> pd.DataFrame:
         msg["source"] = "user_message"
         texts.append(msg)
 
+    # Compatibility fallback: build sentiment from raw root CSVs when gnn_preprocessed is missing.
+    if not texts and RAW_MESSAGES_PATH.exists() and RAW_SESSIONS_PATH.exists():
+        msg = _read_csv_subset(
+            RAW_MESSAGES_PATH,
+            ["id", "session_id", "role", "message", "created_at", "sentiment_score", "sentiment_label"],
+        )
+        sess = _read_csv_subset(RAW_SESSIONS_PATH, ["id", "user_id"])
+
+        sess = sess.rename(columns={"id": "session_id"})
+        msg = msg.rename(columns={"id": "message_id"})
+
+        msg["session_id"] = pd.to_numeric(msg.get("session_id"), errors="coerce")
+        sess["session_id"] = pd.to_numeric(sess.get("session_id"), errors="coerce")
+        sess["user_id"] = pd.to_numeric(sess.get("user_id"), errors="coerce")
+        msg = msg.merge(sess.dropna(subset=["session_id", "user_id"]).drop_duplicates("session_id"), on="session_id", how="left")
+
+        if "role" in msg.columns:
+            msg = msg[msg["role"].astype(str).str.lower().eq("user")]
+
+        keep_cols = ["user_id", "message", "created_at"]
+        if "session_id" in msg.columns:
+            keep_cols.append("session_id")
+        if "message_id" in msg.columns:
+            keep_cols.append("message_id")
+        if "sentiment_score" in msg.columns:
+            keep_cols.append("sentiment_score")
+        if "sentiment_label" in msg.columns:
+            keep_cols.append("sentiment_label")
+        msg = msg[keep_cols].copy()
+        msg["source"] = "user_message"
+        texts.append(msg)
+
     if not texts:
         return pd.DataFrame(columns=["user_id", "message", "created_at", "source", "polarity", "subjectivity", "sentiment"])
 
@@ -1005,11 +1090,17 @@ def load_sentiment_table() -> pd.DataFrame:
 def load_user_message_events() -> pd.DataFrame:
     msg_path = PREPROCESSED_DIR / "messages_nodes.csv"
     sess_path = PREPROCESSED_DIR / "sessions_nodes.csv"
-    if not msg_path.exists() or not sess_path.exists():
+    if msg_path.exists() and sess_path.exists():
+        msg = _read_csv_subset(msg_path, ["message_id", "session_id", "created_at", "role", "message"])
+        sess = _read_csv_subset(sess_path, ["session_id", "user_id", "has_transcription"])
+    elif RAW_MESSAGES_PATH.exists() and RAW_SESSIONS_PATH.exists():
+        msg = _read_csv_subset(RAW_MESSAGES_PATH, ["id", "session_id", "created_at", "role", "message"])
+        sess = _read_csv_subset(RAW_SESSIONS_PATH, ["id", "user_id", "has_transcription"])
+        msg = msg.rename(columns={"id": "message_id"})
+        sess = sess.rename(columns={"id": "session_id"})
+    else:
         return pd.DataFrame(columns=["message_id", "session_id", "user_id", "created_at", "role", "message", "has_transcription"])
 
-    msg = _read_csv_subset(msg_path, ["message_id", "session_id", "created_at", "role", "message"])
-    sess = _read_csv_subset(sess_path, ["session_id", "user_id", "has_transcription"])
     if "session_id" not in msg.columns or "session_id" not in sess.columns:
         return pd.DataFrame(columns=["message_id", "session_id", "user_id", "created_at", "role", "message", "has_transcription"])
 
@@ -1828,14 +1919,19 @@ def load_persona_user_shap() -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_user_dissatisfaction_flags() -> pd.DataFrame:
     cols = ["user_id", "avg_sentiment", "neg_ratio", "msg_count", "dissatisfaction_score", "dissatisfaction_flag", "dissatisfaction_reason"]
-    if not SENTIMENT_SCORES_PATH.exists():
-        return pd.DataFrame(columns=cols)
-
-    s = pd.read_csv(SENTIMENT_SCORES_PATH)
+    if SENTIMENT_SCORES_PATH.exists():
+        s = pd.read_csv(SENTIMENT_SCORES_PATH)
+    else:
+        msg_nodes = PREPROCESSED_DIR / "messages_nodes.csv"
+        if not msg_nodes.exists():
+            return pd.DataFrame(columns=cols)
+        s = pd.read_csv(msg_nodes)
     if "role" in s.columns:
         role = s["role"].astype(str).str.lower().str.strip()
         if role.eq("user").any():
             s = s[role.eq("user")].copy()
+
+    s = repair_flat_sentiment_scores(s, text_col="message", score_col="sentiment_score", label_col="sentiment_label")
 
     if "user_id" not in s.columns:
         if "session_id" in s.columns and SESSIONS_SOURCE_PATH.exists():
@@ -1901,14 +1997,19 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_whatsapp_sentiment_messages() -> pd.DataFrame:
     cols = ["user_id", "message", "created_at", "sentiment_score", "sentiment_label", "role"]
-    if not SENTIMENT_SCORES_PATH.exists():
-        return pd.DataFrame(columns=cols)
-
-    s = pd.read_csv(SENTIMENT_SCORES_PATH)
+    if SENTIMENT_SCORES_PATH.exists():
+        s = pd.read_csv(SENTIMENT_SCORES_PATH)
+    else:
+        msg_nodes = PREPROCESSED_DIR / "messages_nodes.csv"
+        if not msg_nodes.exists():
+            return pd.DataFrame(columns=cols)
+        s = pd.read_csv(msg_nodes)
     if "role" in s.columns:
         role = s["role"].astype(str).str.lower().str.strip()
         if role.eq("user").any():
             s = s[role.eq("user")].copy()
+
+    s = repair_flat_sentiment_scores(s, text_col="message", score_col="sentiment_score", label_col="sentiment_label")
 
     if "user_id" not in s.columns:
         if "session_id" in s.columns and SESSIONS_SOURCE_PATH.exists():

@@ -9,11 +9,25 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw) if raw else default
 
 
+def _has_root_raw_csvs(base: Path) -> bool:
+    required = ["users.csv", "sessions.csv", "feedbacks.csv", "whatsapp_messages.csv"]
+    return all((base / name).exists() for name in required)
+
+
+def _default_secret_data_dir(base: Path) -> Path:
+    secret_dir = base / "secret_data"
+    if secret_dir.exists():
+        return secret_dir
+    if _has_root_raw_csvs(base):
+        return base
+    return secret_dir
+
+
 # Canonical project root for all stage scripts.
 BASE_DIR = Path(__file__).resolve().parent
 
 # Data/source directories.
-SECRET_DATA_DIR = _env_path("MAYA_SECRET_DATA_DIR", BASE_DIR / "secret_data")
+SECRET_DATA_DIR = _env_path("MAYA_SECRET_DATA_DIR", _default_secret_data_dir(BASE_DIR))
 RAW_DATA_DIR = _env_path("MAYA_RAW_DATA_DIR", SECRET_DATA_DIR)
 FLINK_ENGINEERED_DIR = _env_path("MAYA_FLINK_ENGINEERED_DIR", BASE_DIR / "flink_engineered")
 
