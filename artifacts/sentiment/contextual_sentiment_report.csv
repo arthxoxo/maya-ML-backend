@@ -1,0 +1,2 @@
+messages_source,rows_scored,users_scored,sessions_scored,avg_confidence,negative_ratio,neutral_ratio,positive_ratio,context_window,batch_size,sentiment_source
+/Users/arthxoxo/maya-ML-backend/maya-ML-backend/gnn_preprocessed/messages_nodes.csv,6569,48,1277,0.1549403257725681,0.0324250266402801,0.7920535850205511,0.17552138833916883,3,64,hf_contextual

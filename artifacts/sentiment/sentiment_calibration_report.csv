@@ -1,0 +1,2 @@
+pairs_total,best_neg_threshold,best_pos_threshold,best_objective,best_coverage,best_accuracy,best_balanced_accuracy,best_f1_pos,default_coverage,default_accuracy,default_balanced_accuracy,default_f1_pos,label_source,warning
+2,-0.4,0.01,0.5,0.5,1.0,0.5,1.0,0.5,1.0,0.5,1.0,feedback_text_proxy,Calibration sample is small; treat thresholds as provisional.

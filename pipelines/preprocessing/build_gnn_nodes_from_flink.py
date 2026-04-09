@@ -1,0 +1,232 @@
+"""
+Build GNN node tables from Flink filesystem outputs.
+
+Reads Flink-derived datasets from:
+  flink_engineered/users
+  flink_engineered/sessions
+  flink_engineered/feedbacks
+  flink_engineered/messages_sentiment
+
+Also supports legacy fallback path:
+  engineered_features/*
+
+Writes:
+  gnn_preprocessed/users_nodes.csv
+  gnn_preprocessed/sessions_nodes.csv
+  gnn_preprocessed/messages_nodes.csv
+  gnn_preprocessed/feedback_nodes.csv
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from config import BASE_DIR, FLINK_ENGINEERED_DIR, GNN_PREPROCESSED_DIR
+
+
+OUT_DIR = GNN_PREPROCESSED_DIR
+
+
+def resolve_flink_input_dir() -> Path:
+    candidates = [
+        FLINK_ENGINEERED_DIR,
+        BASE_DIR / "engineered_features",  # legacy name used in older scripts
+    ]
+    for p in candidates:
+        if (p / "messages_sentiment").exists():
+            return p
+    return FLINK_ENGINEERED_DIR
+
+
+def read_flink_dir(dir_path: Path) -> pd.DataFrame:
+    if not dir_path.exists():
+        return pd.DataFrame()
+    files = sorted([p for p in dir_path.rglob("*") if p.is_file() and not p.name.startswith(".")])
+    if not files:
+        return pd.DataFrame()
+
+    frames = []
+    for fp in files:
+        try:
+            frames.append(pd.read_csv(fp, header=None))
+        except Exception:
+            continue
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def main() -> None:
+    flink_dir = resolve_flink_input_dir()
+    print(f"Using Flink input directory: {flink_dir}")
+
+    users_raw = read_flink_dir(flink_dir / "users")
+    sessions_raw = read_flink_dir(flink_dir / "sessions")
+    feedbacks_raw = read_flink_dir(flink_dir / "feedbacks")
+    messages_raw = read_flink_dir(flink_dir / "messages_sentiment")
+
+    users_cols = [
+        "user_id", "created_at", "updated_at", "deleted_at", "first_name", "last_name",
+        "timezone", "country", "status", "type", "longitude", "latitude", "contacts_backfilled",
+    ]
+    sessions_cols = [
+        "session_id", "user_id", "created_at", "updated_at", "deleted_at", "duration",
+        "billed_duration", "transcription", "summary", "provider",
+    ]
+    feedback_cols = [
+        "feedback_id", "user_id", "session_id", "message", "feedback_source", "created_at",
+        "updated_at", "deleted_at",
+    ]
+    messages_cols = [
+        "message_id", "session_id", "sender_user_id", "role", "message", "created_at", "updated_at",
+        "deleted_at", "input_tokens", "output_tokens", "model_name", "cost_usd", "recipient_name",
+        "status", "sentiment_score", "sentiment_label",
+    ]
+
+    if not users_raw.empty:
+        users_raw.columns = users_cols
+    if not sessions_raw.empty:
+        sessions_raw.columns = sessions_cols
+    if not feedbacks_raw.empty:
+        feedbacks_raw.columns = feedback_cols
+    if not messages_raw.empty:
+        messages_raw.columns = messages_cols
+
+    # Users node table
+    users = users_raw.copy()
+    if users.empty:
+        users_nodes = pd.DataFrame(columns=[
+            "user_id", "created_at", "updated_at", "deleted_at", "first_name", "last_name", "full_name",
+            "timezone", "country", "status", "type", "longitude", "latitude", "has_geo", "contacts_backfilled",
+        ])
+    else:
+        users["user_id"] = pd.to_numeric(users["user_id"], errors="coerce").astype("Int64")
+        users = users.dropna(subset=["user_id"]).drop_duplicates(subset=["user_id"], keep="last")
+        users["user_id"] = users["user_id"].astype("int64")
+        users["first_name"] = users["first_name"].fillna("").astype(str).str.strip()
+        users["last_name"] = users["last_name"].fillna("").astype(str).str.strip()
+        users["full_name"] = (users["first_name"] + " " + users["last_name"]).str.strip()
+        users["timezone"] = users["timezone"].fillna("")
+        users["country"] = users["country"].fillna("")
+        users["status"] = users["status"].fillna("").astype(str).str.lower()
+        users["type"] = users["type"].fillna("").astype(str).str.lower()
+        users["longitude"] = pd.to_numeric(users["longitude"], errors="coerce")
+        users["latitude"] = pd.to_numeric(users["latitude"], errors="coerce")
+        users["has_geo"] = users["longitude"].notna() & users["latitude"].notna()
+        users["contacts_backfilled"] = users["contacts_backfilled"].fillna(False).astype(str).isin(["t", "true", "1", "True"])
+        users_nodes = users[
+            [
+                "user_id", "created_at", "updated_at", "deleted_at", "first_name", "last_name", "full_name",
+                "timezone", "country", "status", "type", "longitude", "latitude", "has_geo", "contacts_backfilled",
+            ]
+        ]
+
+    valid_user_ids = set(users_nodes["user_id"].tolist())
+
+    # Sessions node table
+    sess = sessions_raw.copy()
+    if sess.empty:
+        sessions_nodes = pd.DataFrame(columns=[
+            "session_id", "user_id", "created_at", "updated_at", "deleted_at", "duration", "billed_duration",
+            "provider", "has_transcription", "has_summary",
+        ])
+    else:
+        sess["session_id"] = pd.to_numeric(sess["session_id"], errors="coerce").astype("Int64")
+        sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce").astype("Int64")
+        sess = sess.dropna(subset=["session_id", "user_id"]).drop_duplicates(subset=["session_id"], keep="last")
+        sess = sess[sess["user_id"].isin(valid_user_ids)]
+        sess["session_id"] = sess["session_id"].astype("int64")
+        sess["user_id"] = sess["user_id"].astype("int64")
+        sess["duration"] = pd.to_numeric(sess["duration"], errors="coerce").fillna(0).clip(lower=0)
+        sess["billed_duration"] = pd.to_numeric(sess["billed_duration"], errors="coerce").fillna(0).clip(lower=0)
+        sess["provider"] = sess["provider"].fillna("").astype(str).str.lower()
+        sess["has_transcription"] = sess["transcription"].fillna("").astype(str).str.strip().str.len() > 0
+        sess["has_summary"] = sess["summary"].fillna("").astype(str).str.strip().str.len() > 0
+        sessions_nodes = sess[
+            [
+                "session_id", "user_id", "created_at", "updated_at", "deleted_at", "duration", "billed_duration",
+                "provider", "has_transcription", "has_summary",
+            ]
+        ]
+
+    valid_session_ids = set(sessions_nodes["session_id"].tolist())
+
+    # Feedback node table
+    fb = feedbacks_raw.copy()
+    if fb.empty:
+        feedback_nodes = pd.DataFrame(columns=[
+            "feedback_id", "user_id", "session_id", "created_at", "updated_at", "deleted_at", "feedback_source",
+            "message", "feedback_char_len", "feedback_word_len",
+        ])
+    else:
+        fb["feedback_id"] = pd.to_numeric(fb["feedback_id"], errors="coerce").astype("Int64")
+        fb["user_id"] = pd.to_numeric(fb["user_id"], errors="coerce").astype("Int64")
+        fb["session_id"] = pd.to_numeric(fb["session_id"], errors="coerce").astype("Int64")
+        fb = fb.dropna(subset=["feedback_id", "user_id", "session_id"]).drop_duplicates(subset=["feedback_id"], keep="last")
+        fb = fb[fb["user_id"].isin(valid_user_ids) & fb["session_id"].isin(valid_session_ids)]
+        fb["feedback_id"] = fb["feedback_id"].astype("int64")
+        fb["user_id"] = fb["user_id"].astype("int64")
+        fb["session_id"] = fb["session_id"].astype("int64")
+        fb["feedback_source"] = fb["feedback_source"].fillna("").astype(str).str.lower()
+        fb["message"] = fb["message"].fillna("").astype(str)
+        fb["feedback_char_len"] = fb["message"].str.len()
+        fb["feedback_word_len"] = fb["message"].str.split().str.len().fillna(0).astype("int64")
+        feedback_nodes = fb[
+            [
+                "feedback_id", "user_id", "session_id", "created_at", "updated_at", "deleted_at", "feedback_source",
+                "message", "feedback_char_len", "feedback_word_len",
+            ]
+        ]
+
+    # Messages node table (from Flink sentiment sink)
+    msg = messages_raw.copy()
+    if msg.empty:
+        messages_nodes = pd.DataFrame(columns=[
+            "message_id", "session_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
+            "recipient_name", "message", "message_char_len", "message_word_len", "input_tokens", "output_tokens",
+            "cost_usd", "sentiment_score", "sentiment_label",
+        ])
+    else:
+        msg["message_id"] = pd.to_numeric(msg["message_id"], errors="coerce").astype("Int64")
+        msg["session_id"] = pd.to_numeric(msg["session_id"], errors="coerce").astype("Int64")
+        msg = msg.dropna(subset=["message_id", "session_id"]).drop_duplicates(subset=["message_id"], keep="last")
+        msg = msg[msg["session_id"].isin(valid_session_ids)]
+        msg["message_id"] = msg["message_id"].astype("int64")
+        msg["session_id"] = msg["session_id"].astype("int64")
+        msg["role"] = msg["role"].fillna("").astype(str).str.lower()
+        msg["status"] = msg["status"].fillna("").astype(str).str.lower()
+        msg["model_name"] = msg["model_name"].fillna("").astype(str).str.lower()
+        msg["recipient_name"] = msg["recipient_name"].fillna("").astype(str)
+        msg["message"] = msg["message"].fillna("").astype(str)
+        msg["message_char_len"] = msg["message"].str.len()
+        msg["message_word_len"] = msg["message"].str.split().str.len().fillna(0).astype("int64")
+        msg["input_tokens"] = pd.to_numeric(msg["input_tokens"], errors="coerce").fillna(0)
+        msg["output_tokens"] = pd.to_numeric(msg["output_tokens"], errors="coerce").fillna(0)
+        msg["cost_usd"] = pd.to_numeric(msg["cost_usd"], errors="coerce").fillna(0)
+        msg["sentiment_score"] = pd.to_numeric(msg["sentiment_score"], errors="coerce").fillna(0)
+        msg["sentiment_label"] = msg["sentiment_label"].fillna("neutral").astype(str).str.lower()
+        messages_nodes = msg[
+            [
+                "message_id", "session_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
+                "recipient_name", "message", "message_char_len", "message_word_len", "input_tokens", "output_tokens",
+                "cost_usd", "sentiment_score", "sentiment_label",
+            ]
+        ]
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    users_nodes.to_csv(OUT_DIR / "users_nodes.csv", index=False)
+    sessions_nodes.to_csv(OUT_DIR / "sessions_nodes.csv", index=False)
+    messages_nodes.to_csv(OUT_DIR / "messages_nodes.csv", index=False)
+    feedback_nodes.to_csv(OUT_DIR / "feedback_nodes.csv", index=False)
+
+    print("Saved node tables from Flink outputs to gnn_preprocessed/")
+    print(f"  users_nodes.csv: {len(users_nodes):,}")
+    print(f"  sessions_nodes.csv: {len(sessions_nodes):,}")
+    print(f"  messages_nodes.csv: {len(messages_nodes):,}")
+    print(f"  feedback_nodes.csv: {len(feedback_nodes):,}")
+
+
+if __name__ == "__main__":
+    main()

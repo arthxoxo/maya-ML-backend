@@ -1,0 +1,11 @@
+signal_name,mean_abs_shap,dim_count,dimensions
+Output Tokens Sum,1.8426158,20,"emb_1, emb_14, emb_15, emb_17, emb_18, emb_24, emb_27, emb_33, emb_4, emb_40, emb_41, emb_43, emb_45, emb_48, emb_52, emb_53, emb_56, emb_6, emb_62, emb_7"
+Msg Char Len Mean,0.7086085,2,"emb_28, emb_37"
+Session Count,0.6542753,5,"emb_10, emb_13, emb_25, emb_32, emb_38"
+Feedback Count,0.35228002,1,emb_63
+Feedback Char Len Mean,0.3466535,7,"emb_0, emb_2, emb_21, emb_47, emb_5, emb_54, emb_8"
+Account Age Days,0.30135217,1,emb_30
+Feedback Word Len Mean,0.22667612,4,"emb_12, emb_22, emb_42, emb_58"
+Input Tokens Sum,0.085487425,1,emb_36
+Billed Duration Sum,0.0,1,emb_29
+Transcription Ratio,0.0,1,emb_11

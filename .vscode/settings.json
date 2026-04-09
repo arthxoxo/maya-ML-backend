@@ -1,0 +1,7 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/flink_venv/bin/python3.11",
+    "terminal.integrated.env.osx": {
+        "JAVA_HOME": "/opt/homebrew/opt/openjdk@17"
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:system"
+}

@@ -1,0 +1,2 @@
+total_messages,eligible_users,sequence_length,hidden_size,epochs,batch_size,train_samples,val_samples,train_loss,val_mse
+7658,43,8,32,25,64,5815,1454,0.030242579221561715,0.030601538717746735

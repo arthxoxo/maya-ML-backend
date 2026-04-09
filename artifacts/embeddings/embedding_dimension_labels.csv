@@ -1,0 +1,65 @@
+feature,label,anchor_feature,anchor_feature_label,abs_correlation
+emb_0,emb_0 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9482858940623287
+emb_1,emb_1 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.34546699376809087
+emb_10,emb_10 - Session Count,session_count,Session Count,0.4705163066934086
+emb_11,emb_11 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.1519757347327321
+emb_12,emb_12 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.9334943744110021
+emb_13,emb_13 - Session Count,session_count,Session Count,0.7352816495240565
+emb_14,emb_14 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3722511309179368
+emb_15,emb_15 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6334290857425046
+emb_16,emb_16 - Session Count,session_count,Session Count,0.8506594884932396
+emb_17,emb_17 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3917134007425548
+emb_18,emb_18 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.34562604967403915
+emb_19,emb_19 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9075864744519001
+emb_2,emb_2 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8983635672835211
+emb_20,emb_20 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.7659316076719878
+emb_21,emb_21 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.29552777918606077
+emb_22,emb_22 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.8996921441210026
+emb_23,emb_23 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3367874049786186
+emb_24,emb_24 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.38919321133834084
+emb_25,emb_25 - Session Count,session_count,Session Count,0.6499243002387232
+emb_26,emb_26 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3564957575453283
+emb_27,emb_27 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6111760045868528
+emb_28,emb_28 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.6256329067911933
+emb_29,emb_29 - Billed Duration Sum,billed_duration_sum,Billed Duration Sum,0.874564863681919
+emb_3,emb_3 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_30,emb_30 - Account Age Days,account_age_days,Account Age Days,0.46690829439522347
+emb_31,emb_31 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.35893583674798296
+emb_32,emb_32 - Session Count,session_count,Session Count,0.7667899263064308
+emb_33,emb_33 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3723551599803435
+emb_34,emb_34 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.34836465211873097
+emb_35,emb_35 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.35080570861649335
+emb_36,emb_36 - Input Tokens Sum,input_tokens_sum,Input Tokens Sum,0.33760626610269434
+emb_37,emb_37 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.6453417382742047
+emb_38,emb_38 - Session Count,session_count,Session Count,0.7519064880360914
+emb_39,emb_39 - Billed Duration Sum,billed_duration_sum,Billed Duration Sum,0.8456167459761977
+emb_4,emb_4 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6293953004744018
+emb_40,emb_40 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.25210394643843664
+emb_41,emb_41 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.36646353815590593
+emb_42,emb_42 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.6827317894235216
+emb_43,emb_43 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.5876095708516851
+emb_44,emb_44 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.34614723345344384
+emb_45,emb_45 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.5970143218843061
+emb_46,emb_46 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.36072158378598773
+emb_47,emb_47 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8777945428101025
+emb_48,emb_48 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.5241342403827702
+emb_49,emb_49 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_5,emb_5 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8510943366610934
+emb_50,emb_50 - Billed Duration Sum,billed_duration_sum,Billed Duration Sum,0.8169154812750734
+emb_51,emb_51 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9479043760949767
+emb_52,emb_52 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.39065211157793167
+emb_53,emb_53 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6154422380688289
+emb_54,emb_54 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8205757293287741
+emb_55,emb_55 - Session Count,session_count,Session Count,0.7912047287378979
+emb_56,emb_56 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6430810678017204
+emb_57,emb_57 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.35030237205176457
+emb_58,emb_58 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.8518957364417442
+emb_59,emb_59 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.35102719584910036
+emb_6,emb_6 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.6081700871722077
+emb_60,emb_60 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.797577609019846
+emb_61,emb_61 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3373945212870845
+emb_62,emb_62 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.32746892797997335
+emb_63,emb_63 - Feedback Count,feedback_count,Feedback Count,0.6157093196967476
+emb_7,emb_7 - Output Tokens Sum,output_tokens_sum,Output Tokens Sum,0.3597229017405887
+emb_8,emb_8 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8054340676710755
+emb_9,emb_9 - Session Duration Sum,session_duration_sum,Session Duration Sum,0.8812151182340775
