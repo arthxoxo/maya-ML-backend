@@ -1858,7 +1858,6 @@ def summarize_persona_reasons(persona_table: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("persona_label")
 
 
-@st.cache_data(show_spinner=False)
 def load_persona_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     table = load_df_from_redis(
         "user_persona_table",
@@ -1887,7 +1886,6 @@ def load_persona_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return table, profiles, importance
 
 
-@st.cache_data(show_spinner=False)
 def load_persona_user_shap() -> pd.DataFrame:
     df_r = load_df_from_redis(
         "persona_user_feature_contributions",

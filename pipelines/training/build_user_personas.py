@@ -246,6 +246,14 @@ def main() -> None:
     age_q2 = float(base["account_age_days"].median()) if len(base) else 0.0
     msg_q2 = float(base["msg_count"].median()) if len(base) else 0.0
     profiles["persona_label"] = profiles.apply(lambda r: persona_name(r, age_q2, msg_q2), axis=1)
+    # Keep labels human-readable but unique per cluster so dashboard filters don't collapse personas.
+    dupes = profiles["persona_label"].duplicated(keep=False)
+    profiles.loc[dupes, "persona_label"] = (
+        profiles.loc[dupes, "persona_label"]
+        + " [P"
+        + profiles.loc[dupes, "persona_id"].astype(int).astype(str)
+        + "]"
+    )
 
     base = base.merge(profiles[["persona_id", "persona_label"]], on="persona_id", how="left")
 
