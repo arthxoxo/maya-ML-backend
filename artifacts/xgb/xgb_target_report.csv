@@ -1,2 +1,2 @@
-target_source,human_label_column,human_label_rows,pseudo_label_rows,joined_users,train_rows,test_rows,accuracy,auc,warning,original_dims,kept_dims,dropped_low_variance,dropped_high_corr,winsor_q_low,winsor_q_high,variance_threshold,corr_drop_threshold
-pseudo_sentiment_label,,0,55,55,41,14,0.9285714285714286,0.5,"Pseudo-label target in use (likely noisy). SHAP explains proxy sentiment, not validated human sentiment.",64,49,8,7,0.01,0.99,1e-06,0.995
+target_source,human_label_column,human_label_rows,pseudo_label_rows,joined_users,train_rows,test_rows,train_neg,train_pos,scale_pos_weight,accuracy,auc,warning,original_dims,kept_dims,dropped_low_variance,dropped_high_corr,winsor_q_low,winsor_q_high,variance_threshold,corr_drop_threshold
+pseudo_sentiment_label,,0,38,38,28,10,5,23,0.21739130434782608,0.8,0.90625,"Pseudo-label target in use (likely noisy). SHAP explains proxy sentiment, not validated human sentiment.",64,39,14,11,0.01,0.99,1e-06,0.995

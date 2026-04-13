@@ -437,6 +437,10 @@ def main() -> None:
         X, y, test_size=args.test_size, random_state=args.seed, stratify=strat
     )
 
+    neg = int((y_train == 0).sum())
+    pos = int((y_train == 1).sum())
+    scale_pos_weight = (neg / pos) if pos > 0 else 1.0
+
     model = XGBClassifier(
         n_estimators=300,
         max_depth=5,
@@ -445,6 +449,7 @@ def main() -> None:
         colsample_bytree=0.9,
         objective="binary:logistic",
         eval_metric="logloss",
+        scale_pos_weight=scale_pos_weight,
         random_state=args.seed,
     )
     model.fit(X_train, y_train)
@@ -498,6 +503,9 @@ def main() -> None:
         "joined_users": int(len(data)),
         "train_rows": int(len(X_train)),
         "test_rows": int(len(X_test)),
+        "train_neg": int(neg),
+        "train_pos": int(pos),
+        "scale_pos_weight": float(scale_pos_weight),
         "accuracy": float(acc),
         "auc": float(auc) if not np.isnan(auc) else np.nan,
         "warning": target_meta.get("warning", ""),

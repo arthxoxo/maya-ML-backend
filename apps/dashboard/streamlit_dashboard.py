@@ -66,6 +66,11 @@ XGB_SHAP_IMPORTANCE_PATH = _first_existing_path(
     XGB_ARTIFACT_DIR / "xgb_embedding_feature_importance_merged.csv",
 )
 XGB_PREDICTIONS_PATH = XGB_ARTIFACT_DIR / "xgb_user_predictions.csv"
+XGB_MODEL_PATH_CANDIDATES = [
+    XGB_ARTIFACT_DIR / "xgb_model.json",
+    XGB_ARTIFACT_DIR / "xgb_model.ubj",
+    XGB_ARTIFACT_DIR / "xgb_model.pkl",
+]
 EMBEDDING_LABELS_PATH = EMBEDDINGS_ARTIFACT_DIR / "embedding_dimension_labels.csv"
 USER_EMBEDDINGS_PATH = _first_existing_path(
     EMBEDDINGS_ARTIFACT_DIR / "user_embeddings.csv",
@@ -723,6 +728,136 @@ def repair_flat_sentiment_scores(
     blended = np.where(weak_mask, heur, 0.75 * score + 0.25 * heur)
     out[score_col] = pd.Series(blended, index=out.index, dtype="float64").fillna(0.0).clip(-1.0, 1.0)
     out[label_col] = out[score_col].apply(polarity_label)
+    return out
+
+
+def _emoji_polarity_hint(text: str) -> float:
+    s = str(text or "")
+    if not s:
+        return 0.0
+
+    pos_emojis = {"😀", "😄", "😁", "🙂", "😊", "😍", "🥰", "👍", "🔥", "🎉", "💯", "❤️", "❤"}
+    neg_emojis = {"😡", "😠", "😤", "😞", "😔", "😢", "😭", "👎", "💔", "😒", "🙄", "🤬", "⚠️"}
+
+    pos_hits = sum(1 for e in pos_emojis if e in s)
+    neg_hits = sum(1 for e in neg_emojis if e in s)
+    hint = 0.10 * pos_hits - 0.12 * neg_hits
+
+    exclam = s.count("!")
+    if exclam > 0:
+        hint *= 1.0 + min(exclam, 4) * 0.06
+
+    return float(np.clip(hint, -0.35, 0.35))
+
+
+def _intent_polarity_hint(text: str) -> float:
+    s = str(text or "").strip().lower()
+    if not s:
+        return 0.0
+
+    neg_patterns = [
+        r"\bnot\s+working\b",
+        r"\bdoesn'?t\s+work\b",
+        r"\bcan'?t\b|\bcannot\b|\bunable\b",
+        r"\b(error|issue|problem|failed|failure|broken|stuck|refund|angry|upset|frustrated)\b",
+        r"\bwhy\s+(is|was|are)\b",
+    ]
+    pos_patterns = [
+        r"\b(thank\s+you|thanks|appreciate)\b",
+        r"\b(works\s+well|resolved|fixed|great|awesome|perfect|excellent)\b",
+        r"\b(good\s+job|well\s+done)\b",
+    ]
+
+    neg_hits = sum(1 for p in neg_patterns if re.search(p, s))
+    pos_hits = sum(1 for p in pos_patterns if re.search(p, s))
+    hint = 0.18 * pos_hits - 0.22 * neg_hits
+    return float(np.clip(hint, -0.45, 0.45))
+
+
+def strengthen_whatsapp_sentiment(
+    df: pd.DataFrame,
+    text_col: str = "message",
+    score_col: str = "sentiment_score",
+    label_col: str = "sentiment_label",
+    group_col: str = "user_id",
+    time_col: str = "created_at",
+    context_window: int = 4,
+) -> pd.DataFrame:
+    if df.empty or text_col not in df.columns:
+        return df
+
+    out = df.copy()
+    out[text_col] = out[text_col].fillna("").astype(str)
+    if time_col in out.columns:
+        out[time_col] = pd.to_datetime(out[time_col], errors="coerce", utc=True)
+
+    base_score = pd.to_numeric(out.get(score_col), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    heur = out[text_col].apply(heuristic_sentiment_fallback)
+    heur_pol = pd.to_numeric(heur.str[0], errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    heur_subj = pd.to_numeric(heur.str[1], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    out["score_model_raw"] = base_score.astype(float)
+    out["heuristic_score"] = heur_pol.astype(float)
+
+    lbl = out.get(label_col, "").fillna("").astype(str).str.lower().str.strip()
+    weak_or_neutral = base_score.abs().lt(0.12) | lbl.isin(["", "neutral"])
+
+    # Trust heuristic more when baseline signal is weak or neutral.
+    blended = np.where(weak_or_neutral, 0.35 * base_score + 0.65 * heur_pol, 0.75 * base_score + 0.25 * heur_pol)
+
+    disagreement = (np.sign(base_score) != np.sign(heur_pol)) & heur_pol.abs().gt(0.35)
+    blended = np.where(disagreement, 0.5 * blended + 0.5 * heur_pol, blended)
+
+    emoji_hint = out[text_col].apply(_emoji_polarity_hint)
+    intent_hint = out[text_col].apply(_intent_polarity_hint)
+    out["score_rule_hint"] = pd.to_numeric(emoji_hint + intent_hint, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    blended = pd.Series(blended, index=out.index, dtype="float64") + emoji_hint + intent_hint
+    blended = blended.clip(-1.0, 1.0)
+    pre_context = blended.copy()
+
+    if group_col in out.columns and time_col in out.columns:
+        tmp = out[[group_col, time_col]].copy()
+        tmp["_score"] = blended.values
+        tmp = tmp.sort_values([group_col, time_col], kind="mergesort")
+
+        adjusted_parts: list[pd.Series] = []
+        for _, grp in tmp.groupby(group_col, sort=False):
+            prior_mean = grp["_score"].shift(1).rolling(window=context_window, min_periods=1).mean().fillna(0.0)
+            weak_now = grp["_score"].abs().lt(0.25)
+            adjusted = grp["_score"] + np.where(weak_now, 0.18 * prior_mean, 0.08 * prior_mean)
+            adjusted_parts.append(pd.Series(adjusted, index=grp.index))
+
+        if adjusted_parts:
+            adjusted_all = pd.concat(adjusted_parts).sort_index()
+            tmp.loc[adjusted_all.index, "_score"] = adjusted_all
+            blended = tmp["_score"].reindex(out.index).fillna(blended).clip(-1.0, 1.0)
+
+    out[score_col] = pd.to_numeric(blended, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    out[label_col] = out[score_col].apply(polarity_label)
+    out["score_pre_context"] = pd.to_numeric(pre_context, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    out["score_context_adjustment"] = (out[score_col] - out["score_pre_context"]).clip(-1.0, 1.0)
+
+    # Confidence should be high for both strong polarity and clearly neutral intent.
+    signal_strength = (0.50 * out[score_col].abs() + 0.25 * heur_pol.abs() + 0.10 * emoji_hint.abs() + 0.15 * intent_hint.abs()).clip(0.0, 1.0)
+    neutral_certainty = ((out[score_col].abs() < 0.09) & (heur_pol.abs() < 0.09)).astype(float)
+    disagreement_penalty = ((np.sign(base_score) != np.sign(heur_pol)) & heur_pol.abs().gt(0.25)).astype(float) * 0.20
+    conf = 0.20 + 0.55 * signal_strength + 0.30 * neutral_certainty + 0.15 * heur_subj - disagreement_penalty
+    out["sentiment_confidence"] = pd.to_numeric(conf, errors="coerce").fillna(0.0).clip(0.0, 1.0)
+
+    def _build_debug_flags(row: pd.Series) -> str:
+        flags: list[str] = []
+        if abs(float(row.get("score_rule_hint", 0.0))) >= 0.06:
+            flags.append("rules")
+        if abs(float(row.get("score_context_adjustment", 0.0))) >= 0.03:
+            flags.append("context")
+        if abs(float(row.get("heuristic_score", 0.0))) >= 0.20:
+            flags.append("heuristic")
+        if abs(float(row.get("score_model_raw", 0.0))) >= 0.20:
+            flags.append("model")
+        if abs(float(row.get("score_model_raw", 0.0)) - float(row.get("heuristic_score", 0.0))) >= 0.30:
+            flags.append("disagreement")
+        return ", ".join(flags) if flags else "none"
+
+    out["sentiment_debug_flags"] = out.apply(_build_debug_flags, axis=1)
     return out
 
 
@@ -1596,6 +1731,9 @@ def load_xgb_target_report() -> pd.DataFrame:
         "joined_users",
         "train_rows",
         "test_rows",
+        "train_neg",
+        "train_pos",
+        "scale_pos_weight",
         "accuracy",
         "auc",
         "warning",
@@ -1609,10 +1747,18 @@ def load_xgb_target_report() -> pd.DataFrame:
             return pd.DataFrame(columns=expected)
         rep = rep_r.copy()
 
-    for c in ["human_label_rows", "pseudo_label_rows", "joined_users", "train_rows", "test_rows"]:
+    for c in [
+        "human_label_rows",
+        "pseudo_label_rows",
+        "joined_users",
+        "train_rows",
+        "test_rows",
+        "train_neg",
+        "train_pos",
+    ]:
         if c in rep.columns:
             rep[c] = pd.to_numeric(rep[c], errors="coerce").fillna(0).astype(int)
-    for c in ["accuracy", "auc"]:
+    for c in ["accuracy", "auc", "scale_pos_weight"]:
         if c in rep.columns:
             rep[c] = pd.to_numeric(rep[c], errors="coerce")
     return rep
@@ -1642,6 +1788,55 @@ def load_xgb_user_predictions() -> pd.DataFrame:
     if "predicted_class" not in df.columns and "pred_label" in df.columns:
         df["predicted_class"] = np.where(df["pred_label"] == 1, "positive", "negative")
     return df.sort_values("pred_prob_positive", ascending=False)
+
+
+def get_xgb_model_artifact_status() -> tuple[bool, str]:
+    for p in XGB_MODEL_PATH_CANDIDATES:
+        if p.exists():
+            return True, f"{p.name} ({p.stat().st_mtime:.0f})"
+    return False, "Not found"
+
+
+def compute_xgb_prediction_health(pred_df: pd.DataFrame) -> Dict[str, float | bool]:
+    if pred_df.empty:
+        return {
+            "total": 0,
+            "positive_rate": float("nan"),
+            "negative_rate": float("nan"),
+            "dominance": float("nan"),
+            "avg_confidence": float("nan"),
+            "confidence_std": float("nan"),
+            "collapse_flag": False,
+        }
+
+    probs = pd.to_numeric(pred_df.get("pred_prob_positive"), errors="coerce").fillna(0.0)
+    classes = pred_df.get("predicted_class", "").fillna("").astype(str).str.lower().str.strip()
+    missing = classes.eq("")
+    if missing.any():
+        classes.loc[missing] = np.where(probs.loc[missing] >= 0.5, "positive", "negative")
+
+    total = int(len(pred_df))
+    pos_rate = float((classes == "positive").mean())
+    neg_rate = float((classes == "negative").mean())
+    dominance = float(max(pos_rate, neg_rate))
+    confidence = pd.to_numeric(pred_df.get("confidence"), errors="coerce")
+    if confidence.isna().all():
+        confidence = (2.0 * (probs - 0.5).abs()).clip(0.0, 1.0)
+    else:
+        confidence = confidence.fillna((2.0 * (probs - 0.5).abs()).clip(0.0, 1.0))
+
+    avg_conf = float(confidence.mean())
+    conf_std = float(confidence.std(ddof=0))
+    collapse_flag = bool(dominance >= 0.95 and conf_std <= 0.08)
+    return {
+        "total": total,
+        "positive_rate": pos_rate,
+        "negative_rate": neg_rate,
+        "dominance": dominance,
+        "avg_confidence": avg_conf,
+        "confidence_std": conf_std,
+        "collapse_flag": collapse_flag,
+    }
 
 
 @st.cache_data(show_spinner=False)
@@ -1994,7 +2189,20 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_whatsapp_sentiment_messages() -> pd.DataFrame:
-    cols = ["user_id", "message", "created_at", "sentiment_score", "sentiment_label", "role"]
+    cols = [
+        "user_id",
+        "message",
+        "created_at",
+        "sentiment_score",
+        "sentiment_label",
+        "sentiment_confidence",
+        "score_model_raw",
+        "heuristic_score",
+        "score_rule_hint",
+        "score_context_adjustment",
+        "sentiment_debug_flags",
+        "role",
+    ]
     if SENTIMENT_SCORES_PATH.exists():
         s = pd.read_csv(SENTIMENT_SCORES_PATH)
     else:
@@ -2032,8 +2240,21 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         s["sentiment_label"] = s["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
         s["sentiment_label"] = s["sentiment_label"].replace({"": "neutral"})
 
+    s = strengthen_whatsapp_sentiment(
+        s,
+        text_col="message",
+        score_col="sentiment_score",
+        label_col="sentiment_label",
+        group_col="user_id",
+        time_col="created_at",
+        context_window=4,
+    )
+
     if "role" not in s.columns:
         s["role"] = "user"
+    for c in cols:
+        if c not in s.columns:
+            s[c] = np.nan
     return s[cols]
 
 
@@ -2269,7 +2490,10 @@ def main() -> None:
 
         wa_quality = wa.copy()
         wa_quality["sentiment_score"] = pd.to_numeric(wa_quality.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-        wa_quality["confidence_proxy"] = wa_quality["sentiment_score"].abs().clip(0.0, 1.0)
+        if "sentiment_confidence" in wa_quality.columns:
+            wa_quality["confidence_proxy"] = pd.to_numeric(wa_quality.get("sentiment_confidence"), errors="coerce").fillna(0.0).clip(0.0, 1.0)
+        else:
+            wa_quality["confidence_proxy"] = wa_quality["sentiment_score"].abs().clip(0.0, 1.0)
         wa_quality["sentiment_label"] = (
             wa_quality.get("sentiment_label", "")
             .fillna("")
@@ -2375,6 +2599,51 @@ def main() -> None:
         if not uncertain_rows.empty and uncertain_cols:
             st.caption("Lowest-confidence samples to inspect model quality and edge cases.")
             st.dataframe(uncertain_rows[uncertain_cols], width="stretch", height=260)
+
+        with st.expander("Sentiment Debug Table", expanded=False):
+            st.caption("Per-message trace: model score, heuristic score, rule/context adjustments, and final confidence.")
+            debug_df = wa_quality.copy()
+            debug_df["sentiment_confidence"] = pd.to_numeric(debug_df.get("sentiment_confidence"), errors="coerce").fillna(0.0)
+            debug_df["score_model_raw"] = pd.to_numeric(debug_df.get("score_model_raw"), errors="coerce").fillna(0.0)
+            debug_df["heuristic_score"] = pd.to_numeric(debug_df.get("heuristic_score"), errors="coerce").fillna(0.0)
+            debug_df["score_rule_hint"] = pd.to_numeric(debug_df.get("score_rule_hint"), errors="coerce").fillna(0.0)
+            debug_df["score_context_adjustment"] = pd.to_numeric(debug_df.get("score_context_adjustment"), errors="coerce").fillna(0.0)
+            debug_df["sentiment_debug_flags"] = debug_df.get("sentiment_debug_flags", "none").fillna("none").astype(str)
+
+            c1, c2, c3 = st.columns([1.2, 1.2, 1])
+            with c1:
+                label_filter = st.selectbox("Label Filter", ["all", "negative", "neutral", "positive"], index=0)
+            with c2:
+                flag_options = ["all", "rules", "context", "heuristic", "model", "disagreement"]
+                flag_filter = st.selectbox("Debug Flag Filter", flag_options, index=0)
+            with c3:
+                top_n = st.slider("Rows", min_value=20, max_value=250, value=80, step=10)
+
+            view = debug_df.copy()
+            if label_filter != "all":
+                view = view[view["sentiment_label"].astype(str).str.lower().eq(label_filter)].copy()
+            if flag_filter != "all":
+                view = view[view["sentiment_debug_flags"].str.contains(flag_filter, case=False, regex=False)].copy()
+
+            view = view.sort_values(["sentiment_confidence", "created_at"], ascending=[True, False])
+            view_cols = [
+                c
+                for c in [
+                    "created_at",
+                    "user_id",
+                    "sentiment_label",
+                    "sentiment_score",
+                    "sentiment_confidence",
+                    "score_model_raw",
+                    "heuristic_score",
+                    "score_rule_hint",
+                    "score_context_adjustment",
+                    "sentiment_debug_flags",
+                    "message",
+                ]
+                if c in view.columns
+            ]
+            st.dataframe(view[view_cols].head(top_n), width="stretch", height=360)
 
         st.subheader("Mood Swing Model (GRU)")
         st.caption("Train a GRU on per-user sentiment sequences to estimate mood volatility over time.")
@@ -2585,13 +2854,23 @@ def main() -> None:
             total_users = int(pred_summary["user_id"].nunique()) if "user_id" in pred_summary.columns else int(len(pred_summary))
             positive_count = int((pred_summary["predicted_class"] == "positive").sum())
             negative_count = int((pred_summary["predicted_class"] == "negative").sum())
+            health = compute_xgb_prediction_health(pred_summary)
 
             st.markdown("### Prediction Snapshot")
             with st.container(border=True):
-                s1, s2, s3 = st.columns(3)
+                s1, s2, s3, s4 = st.columns(4)
                 s1.metric("Total Users", f"{total_users:,}")
                 s2.metric("Positive Predictions", f"{positive_count:,}")
                 s3.metric("Negative Predictions", f"{negative_count:,}")
+                s4.metric("Class Dominance", f"{float(health['dominance']):.1%}")
+
+                if bool(health["collapse_flag"]):
+                    st.error(
+                        "Model collapse risk detected: predictions are dominated by one class with very low variation. "
+                        "Recheck target balance and training labels before trusting SHAP outputs."
+                    )
+                elif float(health["dominance"]) >= 0.85:
+                    st.warning("Prediction mix is heavily skewed. Monitor class balance and probability spread each run.")
 
                 improve_view = pred_summary.copy()
                 improve_view["confidence"] = pd.to_numeric(improve_view.get("confidence"), errors="coerce")
@@ -2644,13 +2923,31 @@ def main() -> None:
             st.caption("Internal model outputs from embedding-based classifier.")
             pred_df = load_xgb_user_predictions()
             report = load_xgb_target_report()
+            model_exists, model_name = get_xgb_model_artifact_status()
 
             if not report.empty:
                 r = report.iloc[0]
-                t1, t2, t3 = st.columns(3)
+                t1, t2, t3, t4 = st.columns(4)
                 t1.metric("Target Source", str(r.get("target_source", "N/A")).replace("_", " ").title())
                 t2.metric("Accuracy", f"{float(r.get('accuracy', np.nan)):.3f}" if pd.notna(r.get("accuracy", np.nan)) else "N/A")
                 t3.metric("AUC", f"{float(r.get('auc', np.nan)):.3f}" if pd.notna(r.get("auc", np.nan)) else "N/A")
+                t4.metric(
+                    "Scale Pos Weight",
+                    f"{float(r.get('scale_pos_weight', np.nan)):.3f}" if pd.notna(r.get("scale_pos_weight", np.nan)) else "N/A",
+                )
+
+                u1, u2, u3, u4 = st.columns(4)
+                u1.metric("Train Pos", f"{int(r.get('train_pos', 0)):,}")
+                u2.metric("Train Neg", f"{int(r.get('train_neg', 0)):,}")
+                if int(r.get("train_pos", 0)) > 0 and int(r.get("train_neg", 0)) > 0:
+                    imbalance = int(r.get("train_pos", 0)) / max(1, int(r.get("train_neg", 0)))
+                    u3.metric("Pos:Neg Ratio", f"{imbalance:.2f}")
+                else:
+                    u3.metric("Pos:Neg Ratio", "N/A")
+                u4.metric("Model Artifact", "Present" if model_exists else "Missing")
+                st.caption(f"Model file: {model_name}")
+                if not model_exists:
+                    st.info("Model weights are not saved yet. Add model.save_model(...) in training to persist run artifacts.")
 
             if pred_df.empty:
                 st.info("No xgb_user_predictions.csv found. Re-run train_xgb_shap_sentiment.py to generate per-user predictions.")
@@ -2669,6 +2966,12 @@ def main() -> None:
                 p1.metric("Users Scored", f"{len(pred_view):,}")
                 p2.metric("Predicted Positive Rate", f"{(pred_view['pred_prob_positive'] >= 0.5).mean():.1%}")
                 p3.metric("Avg Positive Probability", f"{pred_view['pred_prob_positive'].mean():.3f}")
+
+                health = compute_xgb_prediction_health(pred_view)
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Avg Confidence", f"{float(health['avg_confidence']):.1%}")
+                d2.metric("Confidence StdDev", f"{float(health['confidence_std']):.3f}")
+                d3.metric("Prediction Dominance", f"{float(health['dominance']):.1%}")
 
                 all_rows = pred_view.sort_values("pred_prob_positive", ascending=True).copy()
                 prob_long = all_rows.melt(
