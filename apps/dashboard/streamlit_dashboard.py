@@ -468,7 +468,9 @@ def style_chart(
             title_font=dict(size=13, color="#283445"),
         )
 
-        fig.update_traces(marker_line_color="#ffffff", marker_line_width=1)
+        for tr in fig.data:
+            if getattr(tr, "type", "") in {"bar", "histogram", "scatter", "scattergl"}:
+                tr.update(marker_line_color="#ffffff", marker_line_width=1)
         if len(fig.data) == 1 and getattr(fig.data[0], "type", "") in {"bar", "histogram", "scatter"}:
             fig.update_traces(marker_color=ACCENT_PRIMARY)
     return fig
@@ -683,6 +685,25 @@ def polarity_label(p: float) -> str:
     return "neutral"
 
 
+def calibrate_sentiment_labels(
+    scores: pd.Series,
+    target_neutral_share: float = 0.65,
+    min_threshold: float = 0.035,
+    max_threshold: float = 0.22,
+) -> tuple[pd.Series, float]:
+    s = pd.to_numeric(scores, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    if s.empty:
+        return pd.Series(dtype="object"), float(min_threshold)
+
+    target_n = float(np.clip(target_neutral_share, 0.45, 0.85))
+    abs_s = s.abs()
+    thr = float(abs_s.quantile(target_n))
+    thr = float(np.clip(thr, min_threshold, max_threshold))
+
+    labels = np.where(s > thr, "positive", np.where(s < -thr, "negative", "neutral"))
+    return pd.Series(labels, index=s.index, dtype="object"), thr
+
+
 def apply_negative_boost_from_text(
     df: pd.DataFrame,
     text_col: str = "message",
@@ -859,6 +880,159 @@ def strengthen_whatsapp_sentiment(
 
     out["sentiment_debug_flags"] = out.apply(_build_debug_flags, axis=1)
     return out
+
+
+def apply_gru_sequence_context(
+    df: pd.DataFrame,
+    text_col: str = "message",
+    score_col: str = "sentiment_score",
+    label_col: str = "sentiment_label",
+    group_col: str = "user_id",
+    time_col: str = "created_at",
+) -> pd.DataFrame:
+    if df.empty or group_col not in df.columns or time_col not in df.columns:
+        return df
+
+    enabled = os.getenv("MAYA_ENABLE_GRU_SENTIMENT_CONTEXT", "1").strip().lower() in {"1", "true", "yes"}
+    if not enabled:
+        return df
+
+    try:
+        import torch
+        import torch.nn as nn
+    except Exception:
+        return df
+
+    out = df.copy()
+    out[text_col] = out.get(text_col, "").fillna("").astype(str)
+    out[time_col] = pd.to_datetime(out.get(time_col), errors="coerce", utc=True)
+    out = out.sort_values([group_col, time_col], kind="mergesort").copy()
+
+    base = pd.to_numeric(out.get(score_col), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    heur = pd.to_numeric(out.get("heuristic_score"), errors="coerce").fillna(base).clip(-1.0, 1.0)
+    emoji_hint = out[text_col].apply(_emoji_polarity_hint)
+    intent_hint = out[text_col].apply(_intent_polarity_hint)
+    msg_len = out[text_col].str.len().fillna(0).clip(0, 400).astype(float) / 400.0
+    punct = out[text_col].str.count(r"[!?]").fillna(0).clip(0, 6).astype(float) / 6.0
+    feats = np.column_stack([
+        base.to_numpy(dtype=np.float32),
+        heur.to_numpy(dtype=np.float32),
+        pd.to_numeric(emoji_hint, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32),
+        pd.to_numeric(intent_hint, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32),
+        (msg_len.to_numpy(dtype=np.float32) * 2.0 - 1.0),
+        (punct.to_numpy(dtype=np.float32) * 2.0 - 1.0),
+    ])
+
+    lookback = int(os.getenv("MAYA_GRU_LOOKBACK", "8"))
+    hidden = int(os.getenv("MAYA_GRU_HIDDEN", "24"))
+    epochs = int(os.getenv("MAYA_GRU_EPOCHS", "16"))
+
+    x_train: list[np.ndarray] = []
+    y_train: list[float] = []
+
+    def _pad_window(arr: np.ndarray) -> np.ndarray:
+        if arr.shape[0] >= lookback:
+            return arr[-lookback:, :]
+        pad = np.zeros((lookback - arr.shape[0], arr.shape[1]), dtype=np.float32)
+        return np.vstack([pad, arr]).astype(np.float32)
+
+    for _, grp in out.groupby(group_col, sort=False):
+        idx = grp.index.to_numpy()
+        if len(idx) < 2:
+            continue
+        for t in range(1, len(idx)):
+            seq = feats[idx[max(0, t - lookback):t], :]
+            x_train.append(_pad_window(seq))
+            prior_mean = float(base.loc[idx[max(0, t - lookback):t]].mean())
+            target_t = (
+                0.50 * float(base.loc[idx[t]])
+                + 0.30 * float(heur.loc[idx[t]])
+                + 0.12 * float(intent_hint.loc[idx[t]])
+                + 0.08 * float(emoji_hint.loc[idx[t]])
+                + 0.10 * prior_mean
+            )
+            y_train.append(float(np.clip(target_t, -1.0, 1.0)))
+
+    if len(x_train) < 32:
+        return out.sort_index()
+
+    x_np = np.stack(x_train).astype(np.float32)
+    y_np = np.array(y_train, dtype=np.float32).reshape(-1, 1)
+
+    torch.manual_seed(42)
+
+    class _SeqSentimentGRU(nn.Module):
+        def __init__(self, in_dim: int, hidden_dim: int):
+            super().__init__()
+            self.gru = nn.GRU(in_dim, hidden_dim, batch_first=True)
+            self.head = nn.Linear(hidden_dim, 1)
+
+        def forward(self, x):
+            _, h = self.gru(x)
+            return torch.tanh(self.head(h[-1]))
+
+    model = _SeqSentimentGRU(in_dim=x_np.shape[2], hidden_dim=hidden)
+    opt = torch.optim.Adam(model.parameters(), lr=0.01)
+    loss_fn = nn.MSELoss()
+
+    x_t = torch.from_numpy(x_np)
+    y_t = torch.from_numpy(y_np)
+
+    model.train()
+    for _ in range(max(4, epochs)):
+        opt.zero_grad()
+        pred = model(x_t)
+        loss = loss_fn(pred, y_t)
+        loss.backward()
+        opt.step()
+
+    model.eval()
+    context_pred = pd.Series(base.to_numpy(dtype=np.float32), index=out.index, dtype="float64")
+    with torch.no_grad():
+        for _, grp in out.groupby(group_col, sort=False):
+            idx = grp.index.to_numpy()
+            if len(idx) < 2:
+                continue
+            for t in range(1, len(idx)):
+                seq = feats[idx[max(0, t - lookback):t], :]
+                x_one = torch.from_numpy(_pad_window(seq)).unsqueeze(0)
+                context_pred.loc[idx[t]] = float(model(x_one).squeeze().cpu().item())
+
+    context_cap = float(os.getenv("MAYA_GRU_CONTEXT_CAP", "0.32"))
+    raw_adjust = (context_pred - base).clip(-context_cap, context_cap)
+    conf = pd.to_numeric(out.get("sentiment_confidence"), errors="coerce").fillna(0.5).clip(0.0, 1.0)
+    weight = (0.25 + 0.45 * (1.0 - conf)).clip(0.25, 0.70)
+    adj = (raw_adjust * weight).clip(-context_cap, context_cap)
+
+    updated_score = (base + adj).clip(-1.0, 1.0)
+    weak_neutral = updated_score.abs().lt(0.06) & context_pred.abs().gt(0.12)
+    updated_score = np.where(weak_neutral, 0.40 * updated_score + 0.60 * context_pred, updated_score)
+    updated_score = pd.Series(updated_score, index=out.index, dtype="float64").clip(-1.0, 1.0)
+
+    # If distribution is too compressed, expand dynamic range so sentiment does not collapse into neutral.
+    abs_q90 = float(updated_score.abs().quantile(0.90)) if len(updated_score) else 0.0
+    if abs_q90 < 0.07:
+        scale = min(4.0, 0.14 / max(abs_q90, 1e-3))
+        updated_score = (updated_score * scale).clip(-1.0, 1.0)
+    out["score_gru_context"] = pd.to_numeric(context_pred, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    out["score_gru_adjustment"] = pd.to_numeric(adj, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    out[score_col] = updated_score.astype(float)
+    out[label_col] = out[score_col].apply(polarity_label)
+
+    if "score_context_adjustment" in out.columns:
+        out["score_context_adjustment"] = (
+            pd.to_numeric(out["score_context_adjustment"], errors="coerce").fillna(0.0) + out["score_gru_adjustment"]
+        ).clip(-1.0, 1.0)
+
+    if "sentiment_debug_flags" in out.columns:
+        gru_flag = out["score_gru_adjustment"].abs().ge(0.02)
+        out["sentiment_debug_flags"] = np.where(
+            gru_flag,
+            out["sentiment_debug_flags"].fillna("none").astype(str).apply(lambda s: s if s == "none" else f"{s}, gru"),
+            out["sentiment_debug_flags"],
+        )
+
+    return out.sort_index()
 
 
 def _read_csv_subset(path: Path, desired_cols: list[str]) -> pd.DataFrame:
@@ -1071,6 +1245,69 @@ def contextual_hf_sentiment(data: pd.DataFrame, context_window: int = 3) -> pd.D
     df["sentiment"] = final_labels
     df["sentiment_source"] = "huggingface_contextual"
     return df
+
+
+def cardiff_sentiment_scores(
+    data: pd.DataFrame,
+    text_col: str = "message",
+    group_col: str = "user_id",
+    time_col: str = "created_at",
+    context_window: int = 3,
+) -> pd.DataFrame:
+    if data.empty or text_col not in data.columns:
+        return data
+
+    sent_pipe, _ = load_hf_pipelines()
+    if sent_pipe is None:
+        return data
+
+    out = data.copy()
+    if group_col in out.columns and time_col in out.columns:
+        out[time_col] = pd.to_datetime(out.get(time_col), errors="coerce", utc=True)
+        out = out.sort_values([group_col, time_col], kind="mergesort").copy()
+
+    use_context = os.getenv("MAYA_CARDIFF_USE_CONTEXT", "1").strip().lower() in {"1", "true", "yes"}
+    inputs: list[str] = []
+    if use_context and group_col in out.columns:
+        for _, grp in out.groupby(group_col, sort=False):
+            history: list[str] = []
+            for _, row in grp.iterrows():
+                msg = str(row.get(text_col, "")).strip()
+                context = " ".join(history[-context_window:]).strip()
+                if context:
+                    inputs.append(f"Context: {context} [SEP] Current: {msg}")
+                else:
+                    inputs.append(msg)
+                if msg:
+                    history.append(msg[:240])
+    else:
+        inputs = out[text_col].fillna("").astype(str).tolist()
+
+    if not inputs:
+        return out
+
+    preds = sent_pipe(inputs, truncation=True, max_length=256, batch_size=24)
+    polarities: list[float] = []
+    labels: list[str] = []
+    confs: list[float] = []
+    for rec in preds:
+        lbl = _normalize_model_label(rec.get("label", "neutral"))
+        score = float(rec.get("score", 0.0))
+        if lbl == "positive":
+            pol = score
+        elif lbl == "negative":
+            pol = -score
+        else:
+            pol = 0.0
+        polarities.append(float(np.clip(pol, -1.0, 1.0)))
+        labels.append(lbl)
+        confs.append(float(np.clip(score, 0.0, 1.0)))
+
+    out["sentiment_score"] = pd.Series(polarities, index=out.index, dtype="float64")
+    out["sentiment_label"] = pd.Series(labels, index=out.index, dtype="object")
+    out["sentiment_confidence"] = pd.Series(confs, index=out.index, dtype="float64")
+    out["sentiment_source"] = "cardiffnlp_twitter_roberta"
+    return out
 
 
 @st.cache_data(show_spinner=False)
@@ -2195,11 +2432,15 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         "created_at",
         "sentiment_score",
         "sentiment_label",
+        "sentiment_source",
         "sentiment_confidence",
         "score_model_raw",
         "heuristic_score",
         "score_rule_hint",
         "score_context_adjustment",
+        "score_gru_context",
+        "score_gru_adjustment",
+        "sentiment_threshold_used",
         "sentiment_debug_flags",
         "role",
     ]
@@ -2240,6 +2481,46 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         s["sentiment_label"] = s["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
         s["sentiment_label"] = s["sentiment_label"].replace({"": "neutral"})
 
+    sentiment_mode = os.getenv("MAYA_WHATSAPP_SENTIMENT_MODE", "cardiff_only").strip().lower() or "cardiff_only"
+    if sentiment_mode in {"cardiff_only", "cardiff_gru"}:
+        scored = cardiff_sentiment_scores(
+            s,
+            text_col="message",
+            group_col="user_id",
+            time_col="created_at",
+            context_window=4,
+        )
+        if not scored.empty and "sentiment_source" in scored.columns and scored["sentiment_source"].eq("cardiffnlp_twitter_roberta").any():
+            s = scored
+
+    if sentiment_mode == "cardiff_only":
+        s["sentiment_score"] = pd.to_numeric(s.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+        if "sentiment_label" not in s.columns:
+            s["sentiment_label"] = s["sentiment_score"].apply(polarity_label)
+        else:
+            lbl = s["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
+            valid = {"positive", "negative", "neutral"}
+            s["sentiment_label"] = lbl.where(lbl.isin(valid), s["sentiment_score"].apply(polarity_label))
+
+        conf_raw = s["sentiment_confidence"] if "sentiment_confidence" in s.columns else pd.Series(np.nan, index=s.index)
+        conf = pd.to_numeric(conf_raw, errors="coerce")
+        if not isinstance(conf, pd.Series):
+            conf = pd.Series(conf, index=s.index)
+        if conf.isna().all() or float(conf.fillna(0.0).max()) <= 0.01:
+            conf = s["sentiment_score"].abs().clip(0.0, 1.0)
+        s["sentiment_confidence"] = conf.fillna(s["sentiment_score"].abs()).clip(0.0, 1.0)
+
+        if "sentiment_source" not in s.columns:
+            s["sentiment_source"] = "artifact_or_fallback"
+        s["sentiment_source"] = s["sentiment_source"].fillna("artifact_or_fallback").astype(str)
+
+        if "role" not in s.columns:
+            s["role"] = "user"
+        for c in cols:
+            if c not in s.columns:
+                s[c] = np.nan
+        return s[cols]
+
     s = strengthen_whatsapp_sentiment(
         s,
         text_col="message",
@@ -2249,6 +2530,23 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         time_col="created_at",
         context_window=4,
     )
+    s = apply_gru_sequence_context(
+        s,
+        text_col="message",
+        score_col="sentiment_score",
+        label_col="sentiment_label",
+        group_col="user_id",
+        time_col="created_at",
+    )
+
+    target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
+    calibrated_labels, thr = calibrate_sentiment_labels(
+        s.get("sentiment_score", pd.Series(dtype="float64")),
+        target_neutral_share=target_neutral,
+    )
+    if not calibrated_labels.empty:
+        s["sentiment_label"] = calibrated_labels
+        s["sentiment_threshold_used"] = float(thr)
 
     if "role" not in s.columns:
         s["role"] = "user"
@@ -2461,15 +2759,22 @@ def main() -> None:
 
     page = st.sidebar.radio(
         "Page",
-        ["Global Insights", "Per-User Analysis", "RAG Roadmap Signals", "Persona Analysis", "WhatsApp Sentiment"],
+        [
+            "Global Insights",
+            "Per-User Analysis",
+            "RAG Roadmap Signals",
+            "Persona Analysis",
+            "Global Sentiment Analysis",
+            "Per-User Sentiment Analysis",
+        ],
     )
 
-    if page == "WhatsApp Sentiment":
+    if page in {"Global Sentiment Analysis", "Per-User Sentiment Analysis"}:
         wa = load_whatsapp_sentiment_messages()
         user_directory = load_user_directory()
 
         if wa.empty:
-            st.info("No WhatsApp sentiment data found. Ensure sentiment_scores.csv exists with message rows.")
+            st.info("No sentiment data found. Ensure sentiment_scores.csv exists with message rows.")
             return
 
         name_map: Dict[int, str] = {int(uid): f"User ({int(uid)})" for uid in sorted(wa["user_id"].unique().tolist())}
@@ -2479,178 +2784,233 @@ def main() -> None:
                 if uid in name_map:
                     name_map[uid] = str(r["display_name"])
 
-        st.subheader("WhatsApp User Sentiment Overview")
+        st.subheader(page)
         m1, m2, m3 = st.columns(3)
         m1.metric("Users", f"{wa['user_id'].nunique()}")
         m2.metric("Messages", f"{len(wa)}")
         m3.metric("Global Avg Sentiment", f"{wa['sentiment_score'].mean():.3f}")
 
-        st.subheader("Sentiment Quality Monitor")
-        st.caption("Tracks sentiment confidence and label drift so weak/uncertain scoring is visible in the UI.")
+        if page == "Global Sentiment Analysis":
+            st.subheader("Sentiment Quality Monitor")
+            st.caption("Tracks sentiment confidence and label drift so weak or uncertain scoring is visible in the UI.")
 
-        wa_quality = wa.copy()
-        wa_quality["sentiment_score"] = pd.to_numeric(wa_quality.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-        if "sentiment_confidence" in wa_quality.columns:
-            wa_quality["confidence_proxy"] = pd.to_numeric(wa_quality.get("sentiment_confidence"), errors="coerce").fillna(0.0).clip(0.0, 1.0)
-        else:
-            wa_quality["confidence_proxy"] = wa_quality["sentiment_score"].abs().clip(0.0, 1.0)
-        wa_quality["sentiment_label"] = (
-            wa_quality.get("sentiment_label", "")
-            .fillna("")
-            .astype(str)
-            .str.lower()
-            .str.strip()
-            .replace("", "neutral")
-        )
-        wa_quality["created_at"] = pd.to_datetime(wa_quality.get("created_at"), errors="coerce", utc=True)
-
-        latest_ts = wa_quality["created_at"].max() if wa_quality["created_at"].notna().any() else pd.NaT
-        if pd.notna(latest_ts):
-            recent_cutoff = latest_ts - pd.Timedelta(days=14)
-            prev_cutoff = recent_cutoff - pd.Timedelta(days=14)
-            recent = wa_quality[wa_quality["created_at"] >= recent_cutoff].copy()
-            previous = wa_quality[(wa_quality["created_at"] >= prev_cutoff) & (wa_quality["created_at"] < recent_cutoff)].copy()
-        else:
-            recent = wa_quality.copy()
-            previous = pd.DataFrame(columns=wa_quality.columns)
-
-        recent_conf = float(recent["confidence_proxy"].mean()) if not recent.empty else float(wa_quality["confidence_proxy"].mean())
-        prev_conf = float(previous["confidence_proxy"].mean()) if not previous.empty else np.nan
-        low_conf_rate = float((wa_quality["confidence_proxy"] < 0.20).mean()) if not wa_quality.empty else 0.0
-        recent_neg_ratio = float((recent["sentiment_label"] == "negative").mean()) if not recent.empty else float((wa_quality["sentiment_label"] == "negative").mean())
-        prev_neg_ratio = float((previous["sentiment_label"] == "negative").mean()) if not previous.empty else np.nan
-        neg_drift = recent_neg_ratio - prev_neg_ratio if pd.notna(prev_neg_ratio) else np.nan
-        conf_drift = recent_conf - prev_conf if pd.notna(prev_conf) else np.nan
-
-        q1, q2, q3, q4 = st.columns(4)
-        q1.metric("Avg Confidence (14d)", f"{recent_conf:.1%}", delta=f"{conf_drift:+.1%}" if pd.notna(conf_drift) else None)
-        q2.metric("Low-Confidence Rate", f"{low_conf_rate:.1%}")
-        q3.metric("Negative Share (14d)", f"{recent_neg_ratio:.1%}", delta=f"{neg_drift:+.1%}" if pd.notna(neg_drift) else None)
-        q4.metric("Uncertain Messages", f"{int((wa_quality['confidence_proxy'] < 0.20).sum()):,}")
-
-        qleft, qright = st.columns(2)
-        with qleft:
-            conf_series = wa_quality.dropna(subset=["created_at"]).copy()
-            if conf_series.empty:
-                st.info("No timestamps available to compute confidence trend.")
+            wa_quality = wa.copy()
+            wa_quality["sentiment_score"] = pd.to_numeric(wa_quality.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+            if "sentiment_confidence" in wa_quality.columns:
+                conf_raw = pd.to_numeric(wa_quality.get("sentiment_confidence"), errors="coerce")
+                if conf_raw.isna().all() or float(conf_raw.fillna(0.0).max()) <= 0.01:
+                    wa_quality["confidence_proxy"] = wa_quality["sentiment_score"].abs().clip(0.0, 1.0)
+                else:
+                    wa_quality["confidence_proxy"] = conf_raw.fillna(wa_quality["sentiment_score"].abs()).clip(0.0, 1.0)
             else:
-                conf_series["day"] = conf_series["created_at"].dt.floor("D")
-                conf_trend = (
-                    conf_series.groupby("day", as_index=False)
-                    .agg(confidence=("confidence_proxy", "mean"), messages=("message", "size"))
-                    .sort_values("day")
-                )
-                conf_trend["confidence_7d"] = conf_trend["confidence"].rolling(window=7, min_periods=1).mean()
-                fig_conf = px.line(
-                    conf_trend,
-                    x="day",
-                    y=["confidence", "confidence_7d"],
-                    title="Sentiment Confidence Trend",
-                )
-                fig_conf.update_traces(mode="lines+markers")
-                style_chart(fig_conf, height=420, x_title="Date", y_title="Confidence")
-                fig_conf.update_yaxes(range=[0, 1], tickformat=".0%")
-                st.plotly_chart(fig_conf, width="stretch")
+                wa_quality["confidence_proxy"] = wa_quality["sentiment_score"].abs().clip(0.0, 1.0)
+            wa_quality["sentiment_label"] = (
+                wa_quality.get("sentiment_label", "")
+                .fillna("")
+                .astype(str)
+                .str.lower()
+                .str.strip()
+                .replace("", "neutral")
+            )
+            wa_quality["created_at"] = pd.to_datetime(wa_quality.get("created_at"), errors="coerce", utc=True)
 
-        with qright:
-            drift = wa_quality.dropna(subset=["created_at"]).copy()
-            if drift.empty:
-                st.info("No timestamps available to compute label drift.")
+            latest_ts = wa_quality["created_at"].max() if wa_quality["created_at"].notna().any() else pd.NaT
+            if pd.notna(latest_ts):
+                recent_cutoff = latest_ts - pd.Timedelta(days=14)
+                prev_cutoff = recent_cutoff - pd.Timedelta(days=14)
+                recent = wa_quality[wa_quality["created_at"] >= recent_cutoff].copy()
+                previous = wa_quality[(wa_quality["created_at"] >= prev_cutoff) & (wa_quality["created_at"] < recent_cutoff)].copy()
             else:
-                drift["week_start"] = drift["created_at"].dt.to_period("W").dt.start_time
-                drift_mix = drift.groupby(["week_start", "sentiment_label"], as_index=False).size()
-                totals = drift_mix.groupby("week_start", as_index=False)["size"].sum().rename(columns={"size": "total"})
-                drift_mix = drift_mix.merge(totals, on="week_start", how="left")
-                drift_mix["share"] = (drift_mix["size"] / drift_mix["total"]).fillna(0.0)
-                drift_mix = drift_mix.sort_values("week_start")
-                fig_drift = px.bar(
-                    drift_mix,
-                    x="week_start",
-                    y="share",
+                recent = wa_quality.copy()
+                previous = pd.DataFrame(columns=wa_quality.columns)
+
+            recent_conf = float(recent["confidence_proxy"].mean()) if not recent.empty else float(wa_quality["confidence_proxy"].mean())
+            prev_conf = float(previous["confidence_proxy"].mean()) if not previous.empty else np.nan
+            low_conf_rate = float((wa_quality["confidence_proxy"] < 0.20).mean()) if not wa_quality.empty else 0.0
+            recent_neg_ratio = float((recent["sentiment_label"] == "negative").mean()) if not recent.empty else float((wa_quality["sentiment_label"] == "negative").mean())
+            prev_neg_ratio = float((previous["sentiment_label"] == "negative").mean()) if not previous.empty else np.nan
+            neg_drift = recent_neg_ratio - prev_neg_ratio if pd.notna(prev_neg_ratio) else np.nan
+            conf_drift = recent_conf - prev_conf if pd.notna(prev_conf) else np.nan
+
+            q1, q2, q3, q4 = st.columns(4)
+            q1.metric("Avg Confidence (14d)", f"{recent_conf:.1%}", delta=f"{conf_drift:+.1%}" if pd.notna(conf_drift) else None)
+            q2.metric("Low-Confidence Rate", f"{low_conf_rate:.1%}")
+            q3.metric("Negative Share (14d)", f"{recent_neg_ratio:.1%}", delta=f"{neg_drift:+.1%}" if pd.notna(neg_drift) else None)
+            q4.metric("Uncertain Messages", f"{int((wa_quality['confidence_proxy'] < 0.20).sum()):,}")
+
+            gleft, gright = st.columns(2)
+            with gleft:
+                dist_df = wa_quality.copy()
+                dist_df["sentiment_label"] = dist_df["sentiment_label"].where(
+                    dist_df["sentiment_label"].isin(["positive", "negative", "neutral"]),
+                    "neutral",
+                )
+                fig_dist = px.histogram(
+                    dist_df,
+                    x="sentiment_score",
                     color="sentiment_label",
                     color_discrete_map=SENTIMENT_COLORS,
-                    title="Weekly Sentiment Label Drift",
+                    nbins=50,
+                    barmode="overlay",
+                    opacity=0.58,
+                    title="Sentiment Score Distribution by Label",
                 )
-                fig_drift.update_layout(barmode="stack")
-                style_chart(fig_drift, height=420, x_title="Week", y_title="Share", rotate_x=True)
-                fig_drift.update_yaxes(range=[0, 1], tickformat=".0%")
-                fig_drift.update_xaxes(
-                    tickformat="%Y-%m-%d",
-                    tickangle=-35,
-                    nticks=8,
-                )
-                fig_drift.update_layout(
-                    margin=dict(l=62, r=22, t=92, b=92),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1.0,
-                        title_text="",
-                        font=dict(size=12, color="#1e2228"),
-                        bgcolor="rgba(255,251,243,0.96)",
-                    ),
-                )
-                st.plotly_chart(fig_drift, width="stretch")
+                fig_dist.add_vline(x=0.0, line_dash="dot", line_color="#6F5A40")
+                style_chart(fig_dist, height=410, x_title="Sentiment Score", y_title="Messages")
+                st.plotly_chart(fig_dist, width="stretch")
 
-        uncertain_cols = [c for c in ["created_at", "user_id", "sentiment_score", "sentiment_label", "message"] if c in wa_quality.columns]
-        uncertain_rows = wa_quality.sort_values("confidence_proxy", ascending=True).head(25).copy()
-        if not uncertain_rows.empty and uncertain_cols:
-            st.caption("Lowest-confidence samples to inspect model quality and edge cases.")
-            st.dataframe(uncertain_rows[uncertain_cols], width="stretch", height=260)
+            with gright:
+                temporal = wa_quality.dropna(subset=["created_at"]).copy()
+                if temporal.empty:
+                    st.info("No timestamps available for temporal sentiment diagnostics.")
+                else:
+                    temporal["hour"] = temporal["created_at"].dt.hour
+                    temporal["day_name"] = temporal["created_at"].dt.day_name()
+                    day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                    temporal["day_name"] = pd.Categorical(temporal["day_name"], categories=day_order, ordered=True)
+                    heat = (
+                        temporal.groupby(["day_name", "hour"], observed=True, as_index=False)
+                        .agg(neg_share=("sentiment_label", lambda x: float((x == "negative").mean())))
+                    )
+                    fig_heat = px.density_heatmap(
+                        heat,
+                        x="hour",
+                        y="day_name",
+                        z="neg_share",
+                        color_continuous_scale=[[0.0, "#e9f4ec"], [0.5, "#f1cf8a"], [1.0, "#b2413e"]],
+                        title="Negative Share Heatmap (Hour x Weekday)",
+                    )
+                    style_chart(fig_heat, height=410, x_title="Hour of Day", y_title="Weekday")
+                    fig_heat.update_xaxes(dtick=2)
+                    fig_heat.update_coloraxes(colorbar_title="Neg Share")
+                    st.plotly_chart(fig_heat, width="stretch")
 
-        with st.expander("Sentiment Debug Table", expanded=False):
-            st.caption("Per-message trace: model score, heuristic score, rule/context adjustments, and final confidence.")
-            debug_df = wa_quality.copy()
-            debug_df["sentiment_confidence"] = pd.to_numeric(debug_df.get("sentiment_confidence"), errors="coerce").fillna(0.0)
-            debug_df["score_model_raw"] = pd.to_numeric(debug_df.get("score_model_raw"), errors="coerce").fillna(0.0)
-            debug_df["heuristic_score"] = pd.to_numeric(debug_df.get("heuristic_score"), errors="coerce").fillna(0.0)
-            debug_df["score_rule_hint"] = pd.to_numeric(debug_df.get("score_rule_hint"), errors="coerce").fillna(0.0)
-            debug_df["score_context_adjustment"] = pd.to_numeric(debug_df.get("score_context_adjustment"), errors="coerce").fillna(0.0)
-            debug_df["sentiment_debug_flags"] = debug_df.get("sentiment_debug_flags", "none").fillna("none").astype(str)
+            qleft, qright = st.columns(2)
+            with qleft:
+                conf_series = wa_quality.dropna(subset=["created_at"]).copy()
+                if conf_series.empty:
+                    st.info("No timestamps available to compute confidence trend.")
+                else:
+                    conf_series["day"] = conf_series["created_at"].dt.floor("D")
+                    conf_trend = (
+                        conf_series.groupby("day", as_index=False)
+                        .agg(confidence=("confidence_proxy", "mean"), messages=("message", "size"))
+                        .sort_values("day")
+                    )
+                    conf_trend["confidence_7d"] = conf_trend["confidence"].rolling(window=7, min_periods=1).mean()
+                    fig_conf = px.line(
+                        conf_trend,
+                        x="day",
+                        y=["confidence", "confidence_7d"],
+                        title="Sentiment Confidence Trend",
+                    )
+                    fig_conf.update_traces(mode="lines+markers")
+                    style_chart(fig_conf, height=420, x_title="Date", y_title="Confidence")
+                    fig_conf.update_yaxes(range=[0, 1], tickformat=".0%")
+                    st.plotly_chart(fig_conf, width="stretch")
 
-            c1, c2, c3 = st.columns([1.2, 1.2, 1])
-            with c1:
-                label_filter = st.selectbox("Label Filter", ["all", "negative", "neutral", "positive"], index=0)
-            with c2:
-                flag_options = ["all", "rules", "context", "heuristic", "model", "disagreement"]
-                flag_filter = st.selectbox("Debug Flag Filter", flag_options, index=0)
-            with c3:
-                top_n = st.slider("Rows", min_value=20, max_value=250, value=80, step=10)
+            with qright:
+                drift = wa_quality.dropna(subset=["created_at"]).copy()
+                if drift.empty:
+                    st.info("No timestamps available to compute label drift.")
+                else:
+                    drift["week_start"] = drift["created_at"].dt.to_period("W").dt.start_time
+                    drift_mix = drift.groupby(["week_start", "sentiment_label"], as_index=False).size()
+                    totals = drift_mix.groupby("week_start", as_index=False)["size"].sum().rename(columns={"size": "total"})
+                    drift_mix = drift_mix.merge(totals, on="week_start", how="left")
+                    drift_mix["share"] = (drift_mix["size"] / drift_mix["total"]).fillna(0.0)
+                    drift_mix = drift_mix.sort_values("week_start")
+                    fig_drift = px.bar(
+                        drift_mix,
+                        x="week_start",
+                        y="share",
+                        color="sentiment_label",
+                        color_discrete_map=SENTIMENT_COLORS,
+                        title="Weekly Sentiment Label Drift",
+                    )
+                    fig_drift.update_layout(barmode="stack")
+                    style_chart(fig_drift, height=420, x_title="Week", y_title="Share", rotate_x=True)
+                    fig_drift.update_yaxes(range=[0, 1], tickformat=".0%")
+                    fig_drift.update_xaxes(
+                        tickformat="%Y-%m-%d",
+                        tickangle=-35,
+                        nticks=8,
+                    )
+                    fig_drift.update_layout(
+                        margin=dict(l=62, r=22, t=92, b=92),
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1.0,
+                            title_text="",
+                            font=dict(size=12, color="#1e2228"),
+                            bgcolor="rgba(255,251,243,0.96)",
+                        ),
+                    )
+                    st.plotly_chart(fig_drift, width="stretch")
 
-            view = debug_df.copy()
-            if label_filter != "all":
-                view = view[view["sentiment_label"].astype(str).str.lower().eq(label_filter)].copy()
-            if flag_filter != "all":
-                view = view[view["sentiment_debug_flags"].str.contains(flag_filter, case=False, regex=False)].copy()
+            uncertain_cols = [c for c in ["created_at", "user_id", "sentiment_score", "sentiment_label", "message"] if c in wa_quality.columns]
+            uncertain_rows = wa_quality.sort_values("confidence_proxy", ascending=True).head(25).copy()
+            if not uncertain_rows.empty and uncertain_cols:
+                st.caption("Lowest-confidence samples to inspect model quality and edge cases.")
+                st.dataframe(uncertain_rows[uncertain_cols], width="stretch", height=260)
 
-            view = view.sort_values(["sentiment_confidence", "created_at"], ascending=[True, False])
-            view_cols = [
-                c
-                for c in [
-                    "created_at",
-                    "user_id",
-                    "sentiment_label",
-                    "sentiment_score",
-                    "sentiment_confidence",
-                    "score_model_raw",
-                    "heuristic_score",
-                    "score_rule_hint",
-                    "score_context_adjustment",
-                    "sentiment_debug_flags",
-                    "message",
+            with st.expander("Sentiment Debug Table", expanded=False):
+                st.caption("Per-message trace: model score, heuristic score, rule/context adjustments, and final confidence.")
+                debug_df = wa_quality.copy()
+                debug_df["sentiment_confidence"] = pd.to_numeric(debug_df.get("sentiment_confidence"), errors="coerce").fillna(0.0)
+                debug_df["score_model_raw"] = pd.to_numeric(debug_df.get("score_model_raw"), errors="coerce").fillna(0.0)
+                debug_df["heuristic_score"] = pd.to_numeric(debug_df.get("heuristic_score"), errors="coerce").fillna(0.0)
+                debug_df["score_rule_hint"] = pd.to_numeric(debug_df.get("score_rule_hint"), errors="coerce").fillna(0.0)
+                debug_df["score_context_adjustment"] = pd.to_numeric(debug_df.get("score_context_adjustment"), errors="coerce").fillna(0.0)
+                debug_df["sentiment_debug_flags"] = debug_df.get("sentiment_debug_flags", "none").fillna("none").astype(str)
+
+                c1, c2, c3 = st.columns([1.2, 1.2, 1])
+                with c1:
+                    label_filter = st.selectbox("Label Filter", ["all", "negative", "neutral", "positive"], index=0)
+                with c2:
+                    flag_options = ["all", "rules", "context", "heuristic", "model", "disagreement"]
+                    flag_filter = st.selectbox("Debug Flag Filter", flag_options, index=0)
+                with c3:
+                    top_n = st.slider("Rows", min_value=20, max_value=250, value=80, step=10)
+
+                view = debug_df.copy()
+                if label_filter != "all":
+                    view = view[view["sentiment_label"].astype(str).str.lower().eq(label_filter)].copy()
+                if flag_filter != "all":
+                    view = view[view["sentiment_debug_flags"].str.contains(flag_filter, case=False, regex=False)].copy()
+
+                view = view.sort_values(["sentiment_confidence", "created_at"], ascending=[True, False])
+                view_cols = [
+                    c
+                    for c in [
+                        "created_at",
+                        "user_id",
+                        "sentiment_label",
+                        "sentiment_score",
+                        "sentiment_confidence",
+                        "score_model_raw",
+                        "heuristic_score",
+                        "score_rule_hint",
+                        "score_context_adjustment",
+                        "score_gru_context",
+                        "score_gru_adjustment",
+                        "sentiment_debug_flags",
+                        "message",
+                    ]
+                    if c in view.columns
                 ]
-                if c in view.columns
-            ]
-            st.dataframe(view[view_cols].head(top_n), width="stretch", height=360)
+                st.dataframe(view[view_cols].head(top_n), width="stretch", height=360)
+            return
 
         st.subheader("Mood Swing Model (GRU)")
         st.caption("Train a GRU on per-user sentiment sequences to estimate mood volatility over time.")
         action_col, report_col = st.columns([1, 2])
         with action_col:
             if st.button("Train GRU Mood Swing Model", use_container_width=True):
-                with st.spinner("Training GRU mood model on WhatsApp sentiment timeline..."):
+                with st.spinner("Training GRU mood model on sentiment timeline..."):
                     ok, logs = run_gru_mood_training_action()
                 load_gru_mood_swing_summary.clear()
                 load_gru_mood_training_report.clear()
@@ -2763,37 +3123,90 @@ def main() -> None:
             style_chart(fig_mix, height=520, x_title="Share of Messages", y_title="User")
             st.plotly_chart(fig_mix, width="stretch")
 
-        st.subheader("Per-User WhatsApp Sentiment Trend")
+        st.subheader("Per-User Sentiment Trend")
         users = sorted(wa["user_id"].unique().tolist())
         selected_uid = st.selectbox("Select User", users, format_func=lambda uid: name_map.get(int(uid), f"User ({uid})"))
         u = wa[wa["user_id"] == int(selected_uid)].copy().sort_values("created_at")
+        u["sentiment_score"] = pd.to_numeric(u.get("sentiment_score"), errors="coerce").fillna(0.0)
+        u["created_at"] = pd.to_datetime(u.get("created_at"), errors="coerce", utc=True)
+        if "sentiment_confidence" in u.columns:
+            u["sentiment_confidence"] = pd.to_numeric(u.get("sentiment_confidence"), errors="coerce").fillna(0.0).clip(0.0, 1.0)
+        else:
+            u["sentiment_confidence"] = u["sentiment_score"].abs().clip(0.0, 1.0)
 
         tleft, tright = st.columns(2)
         with tleft:
             if u["created_at"].notna().any():
-                fig_t = px.line(
-                    u.dropna(subset=["created_at"]),
-                    x="created_at",
-                    y="sentiment_score",
-                    markers=True,
-                    title="Message Sentiment Over Time",
+                t = u.dropna(subset=["created_at"]).copy()
+                t["rolling_ema"] = t["sentiment_score"].ewm(span=12, adjust=False).mean()
+                t["rolling_mean"] = t["sentiment_score"].rolling(window=10, min_periods=1).mean()
+                fig_t = go.Figure()
+                fig_t.add_trace(
+                    go.Scatter(
+                        x=t["created_at"],
+                        y=t["sentiment_score"],
+                        mode="markers",
+                        name="Message Score",
+                        marker=dict(
+                            size=(6 + 10 * t["sentiment_confidence"]).clip(5, 16),
+                            color=t["sentiment_score"],
+                            colorscale="RdYlGn",
+                            cmin=-1,
+                            cmax=1,
+                            line=dict(width=0.4, color="#3a2d1f"),
+                            opacity=0.62,
+                        ),
+                    )
                 )
-                fig_t.add_hline(y=0.1, line_dash="dash")
-                fig_t.add_hline(y=-0.1, line_dash="dash")
+                fig_t.add_trace(
+                    go.Scatter(x=t["created_at"], y=t["rolling_mean"], mode="lines", name="Rolling Mean (10)", line=dict(width=2.6, color="#1E3A5F"))
+                )
+                fig_t.add_trace(
+                    go.Scatter(x=t["created_at"], y=t["rolling_ema"], mode="lines", name="EMA (12)", line=dict(width=2.2, dash="dot", color="#8D6A3B"))
+                )
+                fig_t.update_layout(title="Per-Message Sentiment with Trend Smoothing")
+                fig_t.add_hline(y=0.1, line_dash="dash", line_color="#2E8B57")
+                fig_t.add_hline(y=-0.1, line_dash="dash", line_color="#B2413E")
                 style_chart(fig_t, height=420, x_title="Timestamp", y_title="Sentiment Score")
                 st.plotly_chart(fig_t, width="stretch")
             else:
                 st.info("No timestamped messages for selected user.")
 
         with tright:
-            fig_h = px.histogram(
-                u,
-                x="sentiment_score",
-                nbins=20,
-                title="Sentiment Score Distribution",
-            )
-            style_chart(fig_h, height=420, x_title="Sentiment Score", y_title="Message Count")
-            st.plotly_chart(fig_h, width="stretch")
+            if u["created_at"].notna().any():
+                m = u.dropna(subset=["created_at"]).copy()
+                m["day"] = m["created_at"].dt.floor("D")
+                day_series = (
+                    m.groupby("day", as_index=False)
+                    .agg(avg_sentiment=("sentiment_score", "mean"), messages=("sentiment_score", "size"))
+                    .sort_values("day")
+                )
+                day_series["neg_share"] = (
+                    m.groupby("day")["sentiment_label"].apply(lambda x: float((x == "negative").mean())).reindex(day_series["day"]).values
+                )
+                fig_day = px.bar(
+                    day_series,
+                    x="day",
+                    y="avg_sentiment",
+                    color="neg_share",
+                    color_continuous_scale=[[0.0, "#79AF8E"], [1.0, "#B2413E"]],
+                    title="Daily Average Sentiment (Color = Negative Share)",
+                    hover_data=["messages", "neg_share"],
+                )
+                fig_day.add_hline(y=0.0, line_dash="dot", line_color="#6F5A40")
+                style_chart(fig_day, height=420, x_title="Day", y_title="Average Sentiment")
+                st.plotly_chart(fig_day, width="stretch")
+            else:
+                fig_h = px.histogram(
+                    u,
+                    x="sentiment_score",
+                    nbins=22,
+                    color="sentiment_label",
+                    color_discrete_map=SENTIMENT_COLORS,
+                    title="Sentiment Score Distribution",
+                )
+                style_chart(fig_h, height=420, x_title="Sentiment Score", y_title="Message Count")
+                st.plotly_chart(fig_h, width="stretch")
 
         st.dataframe(
             u[["created_at", "message", "sentiment_score", "sentiment_label"]]

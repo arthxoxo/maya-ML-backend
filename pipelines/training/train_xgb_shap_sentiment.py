@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 import shap
 from sklearn.metrics import accuracy_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 from xgboost import XGBClassifier
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
@@ -440,6 +440,16 @@ def main() -> None:
     neg = int((y_train == 0).sum())
     pos = int((y_train == 1).sum())
     scale_pos_weight = (neg / pos) if pos > 0 else 1.0
+    min_class_count = int(min(neg, pos))
+    recommended_cv_folds = int(max(2, min(3, min_class_count))) if min_class_count >= 2 else 0
+
+    class_balance_warning = ""
+    if min_class_count < 10:
+        class_balance_warning = (
+            f"Very small minority class in training split (neg={neg}, pos={pos}). "
+            "Metrics may be unstable; prioritize evaluation on human-labeled holdout data."
+        )
+        print(f"[warning] {class_balance_warning}")
 
     model = XGBClassifier(
         n_estimators=300,
@@ -452,6 +462,21 @@ def main() -> None:
         scale_pos_weight=scale_pos_weight,
         random_state=args.seed,
     )
+
+    cv_auc_mean = float("nan")
+    cv_auc_std = float("nan")
+    if recommended_cv_folds >= 2 and y_train.nunique() > 1:
+        cv = StratifiedKFold(n_splits=recommended_cv_folds, shuffle=True, random_state=args.seed)
+        cv_scores = cross_val_score(model, X_train, y_train, scoring="roc_auc", cv=cv, n_jobs=None)
+        cv_auc_mean = float(np.mean(cv_scores))
+        cv_auc_std = float(np.std(cv_scores))
+        print(
+            f"[metrics] cv_auc_mean={cv_auc_mean:.4f} cv_auc_std={cv_auc_std:.4f} "
+            f"(stratified_{recommended_cv_folds}fold)"
+        )
+    else:
+        print("[info] Skipping CV AUC due to insufficient minority samples in training split.")
+
     model.fit(X_train, y_train)
 
     pred = model.predict(X_test)
@@ -506,9 +531,14 @@ def main() -> None:
         "train_neg": int(neg),
         "train_pos": int(pos),
         "scale_pos_weight": float(scale_pos_weight),
+        "recommended_cv_folds": int(recommended_cv_folds),
+        "cv_auc_mean": float(cv_auc_mean) if not np.isnan(cv_auc_mean) else np.nan,
+        "cv_auc_std": float(cv_auc_std) if not np.isnan(cv_auc_std) else np.nan,
         "accuracy": float(acc),
         "auc": float(auc) if not np.isnan(auc) else np.nan,
-        "warning": target_meta.get("warning", ""),
+        "warning": " | ".join(
+            [w for w in [target_meta.get("warning", ""), class_balance_warning] if str(w).strip()]
+        ),
         "original_dims": prep_stats["original_dims"],
         "kept_dims": prep_stats["kept_dims"],
         "dropped_low_variance": prep_stats["dropped_low_variance"],
