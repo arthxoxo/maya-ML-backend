@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 import shap
 from sklearn.metrics import accuracy_score, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from xgboost import XGBClassifier
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
@@ -67,6 +67,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--low_variance_threshold", type=float, default=1e-6)
     p.add_argument("--corr_drop_threshold", type=float, default=0.995)
     p.add_argument("--test_size", type=float, default=0.25)
+    p.add_argument("--eval_size", type=float, default=0.20, help="Validation split fraction inside training data")
+    p.add_argument("--cv_folds", type=int, default=5, help="Requested StratifiedKFold splits for CV")
+    p.add_argument("--early_stopping_rounds", type=int, default=40)
+    p.add_argument("--n_estimators", type=int, default=1200)
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -441,7 +445,8 @@ def main() -> None:
     pos = int((y_train == 1).sum())
     scale_pos_weight = (neg / pos) if pos > 0 else 1.0
     min_class_count = int(min(neg, pos))
-    recommended_cv_folds = int(max(2, min(3, min_class_count))) if min_class_count >= 2 else 0
+    requested_cv_folds = max(2, int(args.cv_folds))
+    cv_folds_used = int(min(requested_cv_folds, min_class_count)) if min_class_count >= 2 else 0
 
     class_balance_warning = ""
     if min_class_count < 10:
@@ -451,33 +456,106 @@ def main() -> None:
         )
         print(f"[warning] {class_balance_warning}")
 
-    model = XGBClassifier(
-        n_estimators=300,
+    model_params = dict(
+        n_estimators=int(args.n_estimators),
         max_depth=5,
         learning_rate=0.05,
         subsample=0.9,
         colsample_bytree=0.9,
         objective="binary:logistic",
         eval_metric="logloss",
+        early_stopping_rounds=int(args.early_stopping_rounds),
         scale_pos_weight=scale_pos_weight,
         random_state=args.seed,
     )
 
     cv_auc_mean = float("nan")
     cv_auc_std = float("nan")
-    if recommended_cv_folds >= 2 and y_train.nunique() > 1:
-        cv = StratifiedKFold(n_splits=recommended_cv_folds, shuffle=True, random_state=args.seed)
-        cv_scores = cross_val_score(model, X_train, y_train, scoring="roc_auc", cv=cv, n_jobs=None)
-        cv_auc_mean = float(np.mean(cv_scores))
-        cv_auc_std = float(np.std(cv_scores))
+    cv_best_iter_mean = float("nan")
+    cv_best_iter_std = float("nan")
+    if cv_folds_used >= 2 and y_train.nunique() > 1:
+        if cv_folds_used < requested_cv_folds:
+            print(
+                f"[warning] Requested {requested_cv_folds}-fold CV reduced to {cv_folds_used} due to minority class size."
+            )
+        cv = StratifiedKFold(n_splits=cv_folds_used, shuffle=True, random_state=args.seed)
+        fold_aucs: list[float] = []
+        fold_best_iters: list[float] = []
+        for fold_idx, (tr_idx, va_idx) in enumerate(cv.split(X_train, y_train), start=1):
+            X_tr_fold = X_train.iloc[tr_idx]
+            y_tr_fold = y_train.iloc[tr_idx]
+            X_va_fold = X_train.iloc[va_idx]
+            y_va_fold = y_train.iloc[va_idx]
+
+            model_fold = XGBClassifier(**model_params)
+            model_fold.fit(
+                X_tr_fold,
+                y_tr_fold,
+                eval_set=[(X_va_fold, y_va_fold)],
+                verbose=False,
+            )
+
+            proba_fold = model_fold.predict_proba(X_va_fold)[:, 1]
+            auc_fold = roc_auc_score(y_va_fold, proba_fold) if y_va_fold.nunique() > 1 else float("nan")
+            if not np.isnan(auc_fold):
+                fold_aucs.append(float(auc_fold))
+
+            best_iter = getattr(model_fold, "best_iteration", None)
+            if best_iter is not None:
+                fold_best_iters.append(float(best_iter))
+
+            print(
+                f"[cv] fold={fold_idx}/{cv_folds_used} auc={auc_fold if np.isnan(auc_fold) else round(auc_fold, 4)} "
+                f"best_iter={best_iter if best_iter is not None else 'n/a'}"
+            )
+
+        if fold_aucs:
+            cv_auc_mean = float(np.mean(fold_aucs))
+            cv_auc_std = float(np.std(fold_aucs))
+        if fold_best_iters:
+            cv_best_iter_mean = float(np.mean(fold_best_iters))
+            cv_best_iter_std = float(np.std(fold_best_iters))
+
         print(
-            f"[metrics] cv_auc_mean={cv_auc_mean:.4f} cv_auc_std={cv_auc_std:.4f} "
-            f"(stratified_{recommended_cv_folds}fold)"
+            f"[metrics] cv_auc_mean={cv_auc_mean if np.isnan(cv_auc_mean) else round(cv_auc_mean, 4)} "
+            f"cv_auc_std={cv_auc_std if np.isnan(cv_auc_std) else round(cv_auc_std, 4)} "
+            f"(stratified_{cv_folds_used}fold, early_stopping={args.early_stopping_rounds})"
         )
     else:
         print("[info] Skipping CV AUC due to insufficient minority samples in training split.")
 
-    model.fit(X_train, y_train)
+    # Final fit with an internal validation split and early stopping.
+    model = XGBClassifier(**model_params)
+    best_iteration_final = float("nan")
+    try:
+        train_strat = y_train if y_train.nunique() > 1 else None
+        X_fit, X_eval, y_fit, y_eval = train_test_split(
+            X_train,
+            y_train,
+            test_size=float(args.eval_size),
+            random_state=args.seed,
+            stratify=train_strat,
+        )
+        if y_eval.nunique() > 1 and len(X_eval) > 0:
+            model.fit(
+                X_fit,
+                y_fit,
+                eval_set=[(X_eval, y_eval)],
+                verbose=False,
+            )
+            bi = getattr(model, "best_iteration", None)
+            if bi is not None:
+                best_iteration_final = float(bi)
+            print(
+                f"[fit] early_stopping_rounds={args.early_stopping_rounds} "
+                f"best_iteration={bi if bi is not None else 'n/a'}"
+            )
+        else:
+            model.fit(X_train, y_train, verbose=False)
+            print("[fit] early stopping skipped: validation split had a single class.")
+    except Exception as exc:
+        model.fit(X_train, y_train, verbose=False)
+        print(f"[warning] early stopping disabled due to split/fit issue: {exc}")
 
     pred = model.predict(X_test)
     proba = model.predict_proba(X_test)[:, 1]
@@ -531,9 +609,14 @@ def main() -> None:
         "train_neg": int(neg),
         "train_pos": int(pos),
         "scale_pos_weight": float(scale_pos_weight),
-        "recommended_cv_folds": int(recommended_cv_folds),
+        "cv_folds_requested": int(requested_cv_folds),
+        "cv_folds_used": int(cv_folds_used),
+        "early_stopping_rounds": int(args.early_stopping_rounds),
+        "best_iteration": float(best_iteration_final) if not np.isnan(best_iteration_final) else np.nan,
         "cv_auc_mean": float(cv_auc_mean) if not np.isnan(cv_auc_mean) else np.nan,
         "cv_auc_std": float(cv_auc_std) if not np.isnan(cv_auc_std) else np.nan,
+        "cv_best_iter_mean": float(cv_best_iter_mean) if not np.isnan(cv_best_iter_mean) else np.nan,
+        "cv_best_iter_std": float(cv_best_iter_std) if not np.isnan(cv_best_iter_std) else np.nan,
         "accuracy": float(acc),
         "auc": float(auc) if not np.isnan(auc) else np.nan,
         "warning": " | ".join(
