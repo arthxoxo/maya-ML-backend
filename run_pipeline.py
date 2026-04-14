@@ -11,7 +11,8 @@ Usage:
   python run_pipeline.py --dry-run
   python run_pipeline.py --start-from train_user_behavior_gnn
   python run_pipeline.py --stop-after build_user_personas
-  python run_pipeline.py --include-redis-publish
+    python run_pipeline.py --include-redis-publish
+    python run_pipeline.py --no-redis-publish
 """
 
 from __future__ import annotations
@@ -126,7 +127,16 @@ def run(steps: list[Step], dry_run: bool = False) -> int:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run ordered Maya ML pipeline stages.")
     p.add_argument("--dry-run", action="store_true", help="Print steps without executing.")
-    p.add_argument("--include-redis-publish", action="store_true", help="Append Redis publish as final step.")
+    p.add_argument(
+        "--include-redis-publish",
+        action="store_true",
+        help="Append Redis publish as final step (also auto-enabled when REDIS_URL is set).",
+    )
+    p.add_argument(
+        "--no-redis-publish",
+        action="store_true",
+        help="Disable Redis publish step even when REDIS_URL is set.",
+    )
     p.add_argument("--start-from", type=str, default=None, help="Start from this step id.")
     p.add_argument("--stop-after", type=str, default=None, help="Stop after this step id.")
     return p.parse_args()
@@ -134,7 +144,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    steps = build_steps(include_redis_publish=bool(args.include_redis_publish))
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    auto_include = bool(redis_url) and not bool(args.no_redis_publish)
+    include_redis_publish = bool(args.include_redis_publish) or auto_include
+    steps = build_steps(include_redis_publish=include_redis_publish)
     steps = slice_steps(steps, start_from=args.start_from, stop_after=args.stop_after)
     exit_code = run(steps, dry_run=bool(args.dry_run))
     raise SystemExit(exit_code)

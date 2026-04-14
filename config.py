@@ -46,4 +46,4 @@ SENTIMENT_ARTIFACT_DIR = _env_path("MAYA_SENTIMENT_ARTIFACT_DIR", ARTIFACTS_DIR 
 # Online store settings.
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 REDIS_PREFIX = os.getenv("MAYA_REDIS_PREFIX", "maya:dashboard").strip() or "maya:dashboard"
-STORE_TARGET = os.getenv("MAYA_STORE_TARGET", "file").strip().lower() or "file"
+STORE_TARGET = os.getenv("MAYA_STORE_TARGET", "auto").strip().lower() or "auto"

@@ -203,6 +203,8 @@ cython_debug/
 flink_venv/
 gnn_preprocessed/
 gnn_outputs/
+flink_engineered/
+artifacts/
 secret_data/
 
 # Local data exports that may contain sensitive content

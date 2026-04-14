@@ -132,12 +132,13 @@ def _build_samples(
 def _train_gru(
     x: np.ndarray,
     y: np.ndarray,
+    meta: pd.DataFrame,
     hidden_size: int,
     epochs: int,
     batch_size: int,
     learning_rate: float,
     seed: int,
-) -> tuple[object, float, float, int, int]:
+) -> tuple[object, float, float, float, int, int]:
     try:
         import torch
         import torch.nn as nn
@@ -151,16 +152,59 @@ def _train_gru(
     if len(x) < 10:
         raise ValueError("Not enough sequence samples to train GRU model.")
 
-    idx = np.arange(len(x))
-    np.random.shuffle(idx)
-    split = max(int(0.8 * len(idx)), 1)
-    train_idx = idx[:split]
-    val_idx = idx[split:] if split < len(idx) else idx[:1]
+    def _build_time_split_indices(meta_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        if meta_df.empty or "user_id" not in meta_df.columns:
+            idx_all = np.arange(len(x))
+            np.random.shuffle(idx_all)
+            split_at = max(int(0.8 * len(idx_all)), 1)
+            tr = idx_all[:split_at]
+            va = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
+            return tr.astype(int), va.astype(int)
+
+        work = meta_df.copy().reset_index().rename(columns={"index": "row_idx"})
+        if "target_created_at" in work.columns:
+            work["target_created_at"] = pd.to_datetime(work["target_created_at"], errors="coerce", utc=True)
+            work = work.sort_values(["user_id", "target_created_at", "target_idx", "row_idx"], kind="mergesort")
+        else:
+            work = work.sort_values(["user_id", "target_idx", "row_idx"], kind="mergesort")
+
+        train_parts: list[np.ndarray] = []
+        val_parts: list[np.ndarray] = []
+
+        for _, g in work.groupby("user_id", sort=False):
+            idxs = g["row_idx"].to_numpy(dtype=int)
+            n = len(idxs)
+            if n <= 2:
+                train_parts.append(idxs)
+                continue
+
+            split_at = int(np.floor(0.8 * n))
+            split_at = min(max(split_at, 1), n - 1)
+            train_parts.append(idxs[:split_at])
+            val_parts.append(idxs[split_at:])
+
+        train_idx_out = np.concatenate(train_parts) if train_parts else np.array([], dtype=int)
+        val_idx_out = np.concatenate(val_parts) if val_parts else np.array([], dtype=int)
+
+        # Fallback guardrail if per-user split produces too little validation coverage.
+        if len(train_idx_out) == 0 or len(val_idx_out) == 0:
+            idx_all = np.arange(len(x))
+            np.random.shuffle(idx_all)
+            split_at = max(int(0.8 * len(idx_all)), 1)
+            train_idx_out = idx_all[:split_at]
+            val_idx_out = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
+        return train_idx_out.astype(int), val_idx_out.astype(int)
+
+    train_idx, val_idx = _build_time_split_indices(meta)
 
     x_train = torch.tensor(x[train_idx], dtype=torch.float32).unsqueeze(-1)
     y_train = torch.tensor(y[train_idx], dtype=torch.float32).unsqueeze(-1)
     x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1)
     y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1)
+
+    # Naive baseline: predict next sentiment as last sentiment from the input window.
+    val_baseline_pred = x[val_idx][:, -1]
+    val_baseline_mse = float(np.mean((val_baseline_pred - y[val_idx]) ** 2)) if len(val_idx) else float("nan")
 
     train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=max(1, batch_size), shuffle=True)
 
@@ -197,7 +241,7 @@ def _train_gru(
         val_pred = model(x_val)
         val_mse = float(criterion(val_pred, y_val).item())
 
-    return model, train_loss, val_mse, int(len(train_idx)), int(len(val_idx))
+    return model, train_loss, val_mse, val_baseline_mse, int(len(train_idx)), int(len(val_idx))
 
 
 def _predict_sequences(model, x: np.ndarray) -> np.ndarray:
@@ -326,9 +370,10 @@ def main() -> None:
     if len(x) == 0:
         raise ValueError("No eligible user sequences found. Reduce --min_user_msgs or --sequence_length.")
 
-    model, train_loss, val_mse, train_samples, val_samples = _train_gru(
+    model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
         x=x,
         y=y,
+        meta=meta,
         hidden_size=int(args.hidden_size),
         epochs=int(args.epochs),
         batch_size=int(args.batch_size),
@@ -351,6 +396,11 @@ def main() -> None:
                 "val_samples": int(val_samples),
                 "train_loss": float(train_loss),
                 "val_mse": float(val_mse),
+                "val_baseline_mse": float(val_baseline_mse),
+                "val_mse_vs_baseline_pct": float(((val_baseline_mse - val_mse) / val_baseline_mse) * 100.0)
+                if pd.notna(val_baseline_mse) and val_baseline_mse > 0
+                else np.nan,
+                "validation_split_strategy": "per_user_chronological_80_20",
             }
         ]
     )
@@ -360,7 +410,10 @@ def main() -> None:
 
     print(f"[ok] Saved mood swing summary: {out_summary}")
     print(f"[ok] Saved training report: {out_report}")
-    print(f"[ok] Users scored: {len(summary)} | train_loss={train_loss:.6f} | val_mse={val_mse:.6f}")
+    print(
+        f"[ok] Users scored: {len(summary)} | train_loss={train_loss:.6f} | val_mse={val_mse:.6f} "
+        f"| val_baseline_mse={val_baseline_mse:.6f}"
+    )
 
 
 if __name__ == "__main__":

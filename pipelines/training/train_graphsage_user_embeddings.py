@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from config import EMBEDDINGS_ARTIFACT_DIR, SECRET_DATA_DIR
+from online_store import save_artifact_df
 
 
 def minmax(col: pd.Series) -> pd.Series:
@@ -313,8 +314,7 @@ def main() -> None:
     for i in range(emb_np.shape[1]):
         out_df[f"emb_{i}"] = emb_np[:, i]
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(out_path, index=False)
+    save_artifact_df(out_df, "user_embeddings", out_path, index=False)
     print(f"Saved {emb_np.shape[0]} user embeddings ({emb_np.shape[1]}-d) to: {out_path}")
 
 

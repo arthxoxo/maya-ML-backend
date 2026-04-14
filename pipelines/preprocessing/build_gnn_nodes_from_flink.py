@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import BASE_DIR, FLINK_ENGINEERED_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR
+from online_store import save_artifact_df
 
 
 OUT_DIR = GNN_PREPROCESSED_DIR
@@ -282,10 +283,10 @@ def main() -> None:
         ]
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    users_nodes.to_csv(OUT_DIR / "users_nodes.csv", index=False)
-    sessions_nodes.to_csv(OUT_DIR / "sessions_nodes.csv", index=False)
-    messages_nodes.to_csv(OUT_DIR / "messages_nodes.csv", index=False)
-    feedback_nodes.to_csv(OUT_DIR / "feedback_nodes.csv", index=False)
+    save_artifact_df(users_nodes, "users_nodes", OUT_DIR / "users_nodes.csv", index=False)
+    save_artifact_df(sessions_nodes, "sessions_nodes", OUT_DIR / "sessions_nodes.csv", index=False)
+    save_artifact_df(messages_nodes, "messages_nodes", OUT_DIR / "messages_nodes.csv", index=False)
+    save_artifact_df(feedback_nodes, "feedback_nodes", OUT_DIR / "feedback_nodes.csv", index=False)
 
     print("Saved node tables from Flink outputs to gnn_preprocessed/")
     print(f"  users_nodes.csv: {len(users_nodes):,}")

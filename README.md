@@ -36,12 +36,13 @@ Key environment variables:
 - `MAYA_GNN_INPUT_DIR` (default: `gnn_preprocessed/`)
 - `MAYA_GNN_MODEL_OUTPUT_DIR` (default: `gnn_outputs/`)
 - `MAYA_FEATURE_OUTPUT_DIR` (default: repo root)
-- `MAYA_STORE_TARGET` (`file`, `redis`, `hybrid`, or `auto`)
+- `MAYA_STORE_TARGET` (`file`, `redis`, `hybrid`, or `auto`; default is `auto`)
 - `REDIS_URL` (required for Redis mode)
 - `MAYA_REDIS_PREFIX` (default: `maya:dashboard`)
 
 Connected stage behavior:
 
+- Preprocessing node-builder and training stages now publish generated CSV outputs directly to Redis when `REDIS_URL` is set.
 - GNN stage reads node artifacts from Redis-first (with CSV fallback) and writes outputs to both CSV and Redis.
 - XGBoost + SHAP stage reads embeddings from the shared artifact store and publishes SHAP outputs back to Redis and CSV.
 - Persona stage reads embeddings from the shared artifact store and publishes persona outputs back to Redis and CSV.
@@ -145,7 +146,7 @@ Artifacts:
 - `artifacts/xgb/xgb_embedding_feature_importance.csv`
 - `artifacts/xgb/xgb_target_report.csv` (target provenance + warning + model metrics)
 
-### 6) Publish outputs to Redis and serve dashboard from Redis
+### 6) Redis Backfill (Optional) and Dashboard
 
 Install Redis client package once in your environment:
 
@@ -159,7 +160,7 @@ If Redis is not running locally, start it quickly with Docker:
 docker run --name maya-redis -p 6379:6379 -d redis:7
 ```
 
-Publish dashboard datasets to Redis:
+Backfill Redis keys from existing CSVs (optional, useful when migrating historical files):
 
 ```bash
 python -m apps.tools.publish_dashboard_data_to_redis \
@@ -180,6 +181,14 @@ Dashboard behavior:
 - Reads from Redis first for core datasets.
 - Falls back to CSV files if Redis is unavailable or keys are missing.
 
+Quick verification commands:
+
+```bash
+export REDIS_URL='redis://default:<password>@redis-17723.crce206.ap-south-1-1.ec2.cloud.redislabs.com:17723/0'
+make redis-publish
+make redis-check
+```
+
 ## One-Command Ordered Pipeline
 
 Use the orchestrator to run stages in code-defined order with fail-fast exit checks:
@@ -193,4 +202,7 @@ Useful options:
 - `--dry-run` (print order only)
 - `--start-from <step_id>`
 - `--stop-after <step_id>`
-- `--include-redis-publish` (requires `REDIS_URL`)
+- `--include-redis-publish` (force append Redis backfill step)
+- `--no-redis-publish` (disable Redis backfill step)
+
+By default, if `REDIS_URL` is set, `run_pipeline.py` auto-appends the Redis backfill step.

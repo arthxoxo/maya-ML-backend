@@ -1,10 +1,7 @@
 signal_name,mean_abs_shap,dim_count,dimensions
-Msg Char Len Mean,0.7157108,8,"emb_24, emb_30, emb_31, emb_39, emb_47, emb_54, emb_58, emb_9"
-Feedback Count,0.5955007,2,"emb_0, emb_49"
-Feedback Char Len Mean,0.46011904,5,"emb_19, emb_20, emb_21, emb_25, emb_44"
-Output Tokens Sum,0.39191324,15,"emb_13, emb_15, emb_17, emb_18, emb_2, emb_28, emb_29, emb_32, emb_33, emb_37, emb_43, emb_45, emb_55, emb_59, emb_62"
-Session Count,0.13166301,4,"emb_22, emb_60, emb_7, emb_8"
-Msg Word Len Mean,0.03930117,2,"emb_4, emb_5"
-Input Tokens Sum,0.0,1,emb_6
-Session Duration Mean,0.0,1,emb_23
-Transcription Ratio,0.0,1,emb_34
+Msg Char Len Mean,0.83126974,8,"emb_15, emb_16, emb_17, emb_22, emb_32, emb_46, emb_56, emb_57"
+Msg Word Len Mean,0.68118757,6,"emb_1, emb_24, emb_26, emb_27, emb_63, emb_7"
+Session Duration Mean,0.52469486,24,"emb_0, emb_18, emb_2, emb_20, emb_25, emb_28, emb_29, emb_3, emb_31, emb_34, emb_36, emb_37, emb_39, emb_4, emb_40, emb_44, emb_5, emb_52, emb_54, emb_55, emb_60, emb_61, emb_8, emb_9"
+Account Age Days,0.33007675,3,"emb_14, emb_38, emb_62"
+Feedback Char Len Mean,0.0,5,"emb_21, emb_23, emb_35, emb_51, emb_6"
+Feedback Count,0.0,2,"emb_13, emb_41"
