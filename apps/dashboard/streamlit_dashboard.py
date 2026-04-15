@@ -611,9 +611,20 @@ def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         per_user_r["importance"] = pd.to_numeric(per_user_r["importance"], errors="coerce").fillna(0.0)
         return scores_r.dropna(subset=["user_id"]), global_r, per_user_r.dropna(subset=["user_id"])
 
-    scores = pd.read_csv(OUTPUT_DIR / "user_behaviour_scores.csv")
-    global_imp = pd.read_csv(OUTPUT_DIR / "user_feature_importance_global.csv")
-    per_user_imp = pd.read_csv(OUTPUT_DIR / "user_feature_importance_per_user.csv")
+    scores_path = OUTPUT_DIR / "user_behaviour_scores.csv"
+    global_path = OUTPUT_DIR / "user_feature_importance_global.csv"
+    per_user_path = OUTPUT_DIR / "user_feature_importance_per_user.csv"
+
+    if not (scores_path.exists() and global_path.exists() and per_user_path.exists()):
+        return (
+            _empty_df(["user_id", "engagement_score", "pred_high_engagement_prob"]),
+            _empty_df(["feature", "importance"]),
+            _empty_df(["user_id", "rank", "feature", "importance"]),
+        )
+
+    scores = pd.read_csv(scores_path)
+    global_imp = pd.read_csv(global_path)
+    per_user_imp = pd.read_csv(per_user_path)
     return scores, global_imp, per_user_imp
 
 
@@ -642,9 +653,14 @@ def load_user_directory() -> pd.DataFrame:
     users["user_id"] = pd.to_numeric(users.get("user_id"), errors="coerce")
     users = users.dropna(subset=["user_id"]).copy()
     users["user_id"] = users["user_id"].astype(int)
-    users["first_name"] = users.get("first_name", "").fillna("").astype(str).str.strip()
-    users["last_name"] = users.get("last_name", "").fillna("").astype(str).str.strip()
-    users["full_name"] = users.get("full_name", "").fillna("").astype(str).str.strip()
+    def _clean_name_col(col: str) -> pd.Series:
+        if col in users.columns:
+            return users[col].fillna("").astype(str).str.strip()
+        return pd.Series("", index=users.index, dtype="object")
+
+    users["first_name"] = _clean_name_col("first_name")
+    users["last_name"] = _clean_name_col("last_name")
+    users["full_name"] = _clean_name_col("full_name")
     users.loc[users["full_name"].eq(""), "full_name"] = (users["first_name"] + " " + users["last_name"]).str.strip()
     users = users.sort_values(["user_id", "full_name"], ascending=[True, False]).drop_duplicates("user_id", keep="first")
     users["display_name"] = users["full_name"].replace("", np.nan).fillna("User") + " (" + users["user_id"].astype(str) + ")"
@@ -688,7 +704,7 @@ def polarity_label(p: float) -> str:
 def calibrate_sentiment_labels(
     scores: pd.Series,
     target_neutral_share: float = 0.65,
-    min_threshold: float = 0.035,
+    min_threshold: float = 0.005,
     max_threshold: float = 0.22,
 ) -> tuple[pd.Series, float]:
     s = pd.to_numeric(scores, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
@@ -1168,19 +1184,21 @@ def human_signal_explainer(signal_name: str) -> str:
 
 
 @st.cache_resource(show_spinner=False)
-def load_hf_pipelines():
+def load_hf_pipelines(include_irony: bool = False):
     try:
         from transformers import pipeline
 
         sent_pipe = pipeline("sentiment-analysis", model=HF_SENTIMENT_MODEL, tokenizer=HF_SENTIMENT_MODEL, device=-1)
-        irony_pipe = pipeline("text-classification", model=HF_IRONY_MODEL, tokenizer=HF_IRONY_MODEL, device=-1)
+        irony_pipe = None
+        if include_irony:
+            irony_pipe = pipeline("text-classification", model=HF_IRONY_MODEL, tokenizer=HF_IRONY_MODEL, device=-1)
         return sent_pipe, irony_pipe
     except Exception:
         return None, None
 
 
 def contextual_hf_sentiment(data: pd.DataFrame, context_window: int = 3) -> pd.DataFrame:
-    sent_pipe, irony_pipe = load_hf_pipelines()
+    sent_pipe, irony_pipe = load_hf_pipelines(include_irony=True)
     if sent_pipe is None or irony_pipe is None or data.empty:
         return data
 
@@ -1257,7 +1275,7 @@ def cardiff_sentiment_scores(
     if data.empty or text_col not in data.columns:
         return data
 
-    sent_pipe, _ = load_hf_pipelines()
+    sent_pipe, _ = load_hf_pipelines(include_irony=False)
     if sent_pipe is None:
         return data
 
@@ -1317,6 +1335,13 @@ def load_sentiment_table() -> pd.DataFrame:
         try:
             cached = pd.read_csv(SENTIMENT_SCORES_PATH)
             if not cached.empty:
+                if "sentiment_score" in cached.columns:
+                    cached = repair_flat_sentiment_scores(
+                        cached,
+                        text_col="message",
+                        score_col="sentiment_score",
+                        label_col="sentiment_label",
+                    )
                 if "user_id" in cached.columns:
                     cached["user_id"] = pd.to_numeric(cached["user_id"], errors="coerce")
                     cached = cached.dropna(subset=["user_id"]).copy()
@@ -1329,6 +1354,21 @@ def load_sentiment_table() -> pd.DataFrame:
                     cached["created_at"] = pd.to_datetime(cached["created_at"], errors="coerce", utc=True)
                 else:
                     cached["created_at"] = pd.NaT
+                if {
+                    "sentiment_score",
+                    "message",
+                    "user_id",
+                    "created_at",
+                }.issubset(cached.columns):
+                    cached = strengthen_whatsapp_sentiment(
+                        cached,
+                        text_col="message",
+                        score_col="sentiment_score",
+                        label_col="sentiment_label",
+                        group_col="user_id",
+                        time_col="created_at",
+                        context_window=4,
+                    )
                 if "polarity" not in cached.columns and "sentiment_score" in cached.columns:
                     cached["polarity"] = pd.to_numeric(cached["sentiment_score"], errors="coerce").fillna(0.0)
                 cached["polarity"] = pd.to_numeric(cached.get("polarity"), errors="coerce").fillna(0.0)
@@ -1342,6 +1382,19 @@ def load_sentiment_table() -> pd.DataFrame:
                         cached["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
                     else:
                         cached["sentiment"] = cached["polarity"].apply(polarity_label)
+                # Some upstream artifacts can contain placeholder labels like "undefined".
+                sent = cached["sentiment"].fillna("").astype(str).str.lower().str.strip()
+                cached["sentiment"] = sent.where(sent.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
+                target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
+                neutral_share = float(cached["sentiment"].eq("neutral").mean()) if len(cached) else 1.0
+                if neutral_share > max(0.80, target_neutral + 0.15):
+                    calibrated_labels, thr = calibrate_sentiment_labels(
+                        cached.get("polarity", pd.Series(dtype="float64")),
+                        target_neutral_share=target_neutral,
+                    )
+                    if not calibrated_labels.empty:
+                        cached["sentiment"] = calibrated_labels
+                        cached["sentiment_threshold_used"] = float(thr)
                 if "source" not in cached.columns:
                     cached["source"] = "user_message"
                 if "sentiment_source" not in cached.columns:
@@ -1419,12 +1472,30 @@ def load_sentiment_table() -> pd.DataFrame:
         return pd.DataFrame(columns=["user_id", "message", "created_at", "source", "polarity", "subjectivity", "sentiment"])
 
     data = pd.concat(texts, ignore_index=True)
+    if "sentiment_score" in data.columns:
+        data = repair_flat_sentiment_scores(
+            data,
+            text_col="message",
+            score_col="sentiment_score",
+            label_col="sentiment_label",
+        )
     data["user_id"] = pd.to_numeric(data["user_id"], errors="coerce")
     data = data.dropna(subset=["user_id"])
     data["user_id"] = data["user_id"].astype(int)
     data["message"] = data["message"].fillna("").astype(str).str.strip()
     data = data[data["message"].str.len() > 0]
     data["created_at"] = pd.to_datetime(data["created_at"], errors="coerce", utc=True)
+
+    if {"sentiment_score", "message", "user_id", "created_at"}.issubset(data.columns):
+        data = strengthen_whatsapp_sentiment(
+            data,
+            text_col="message",
+            score_col="sentiment_score",
+            label_col="sentiment_label",
+            group_col="user_id",
+            time_col="created_at",
+            context_window=4,
+        )
 
     enable_hf_contextual = os.getenv("MAYA_ENABLE_CONTEXTUAL_HF", "0").strip().lower() in {"1", "true", "yes"}
     if enable_hf_contextual:
@@ -1454,6 +1525,18 @@ def load_sentiment_table() -> pd.DataFrame:
         data["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), data["polarity"].apply(polarity_label))
     else:
         data["sentiment"] = data["polarity"].apply(polarity_label)
+    sent = data["sentiment"].fillna("").astype(str).str.lower().str.strip()
+    data["sentiment"] = sent.where(sent.isin(["positive", "negative", "neutral"]), data["polarity"].apply(polarity_label))
+    target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
+    neutral_share = float(data["sentiment"].eq("neutral").mean()) if len(data) else 1.0
+    if neutral_share > max(0.80, target_neutral + 0.15):
+        calibrated_labels, thr = calibrate_sentiment_labels(
+            data.get("polarity", pd.Series(dtype="float64")),
+            target_neutral_share=target_neutral,
+        )
+        if not calibrated_labels.empty:
+            data["sentiment"] = calibrated_labels
+            data["sentiment_threshold_used"] = float(thr)
     data["sentiment_source"] = "heuristic_or_flink_fallback"
     return data
 
@@ -2482,7 +2565,8 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         s["sentiment_label"] = s["sentiment_label"].replace({"": "neutral"})
 
     sentiment_mode = os.getenv("MAYA_WHATSAPP_SENTIMENT_MODE", "cardiff_only").strip().lower() or "cardiff_only"
-    if sentiment_mode in {"cardiff_only", "cardiff_gru"}:
+    enable_cardiff_ui = os.getenv("MAYA_ENABLE_CARDIFF_UI", "1").strip().lower() in {"1", "true", "yes"}
+    if enable_cardiff_ui and sentiment_mode in {"cardiff_only", "cardiff_gru"}:
         scored = cardiff_sentiment_scores(
             s,
             text_col="message",
@@ -2513,6 +2597,17 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         if "sentiment_source" not in s.columns:
             s["sentiment_source"] = "artifact_or_fallback"
         s["sentiment_source"] = s["sentiment_source"].fillna("artifact_or_fallback").astype(str)
+
+        target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
+        neutral_share = float(s["sentiment_label"].eq("neutral").mean()) if len(s) else 1.0
+        if neutral_share > max(0.80, target_neutral + 0.15):
+            calibrated_labels, thr = calibrate_sentiment_labels(
+                s.get("sentiment_score", pd.Series(dtype="float64")),
+                target_neutral_share=target_neutral,
+            )
+            if not calibrated_labels.empty:
+                s["sentiment_label"] = calibrated_labels
+                s["sentiment_threshold_used"] = float(thr)
 
         if "role" not in s.columns:
             s["role"] = "user"
@@ -3649,7 +3744,10 @@ def main() -> None:
             if sentiment_df.empty:
                 st.info("No sentiment rows found in preprocessed messages.")
             else:
-                sent_counts = sentiment_df.groupby("sentiment").size().reset_index(name="count")
+                sent_counts = sentiment_df.copy()
+                sent_counts["sentiment"] = sent_counts["sentiment"].fillna("").astype(str).str.lower().str.strip()
+                sent_counts = sent_counts[sent_counts["sentiment"].isin(["positive", "negative", "neutral"])]
+                sent_counts = sent_counts.groupby("sentiment").size().reset_index(name="count")
                 fig_pie = px.pie(
                     sent_counts,
                     names="sentiment",
@@ -3657,6 +3755,7 @@ def main() -> None:
                     hole=0.45,
                     color="sentiment",
                     color_discrete_map=SENTIMENT_COLORS,
+                    category_orders={"sentiment": ["positive", "neutral", "negative"]},
                 )
                 style_chart(fig_pie, height=420, kind="pie")
                 st.plotly_chart(fig_pie, width="stretch")
@@ -3978,7 +4077,10 @@ def main() -> None:
         else:
             d1, d2 = st.columns(2)
             with d1:
-                sent_counts = user_sent.groupby("sentiment").size().reset_index(name="count")
+                sent_counts = user_sent.copy()
+                sent_counts["sentiment"] = sent_counts["sentiment"].fillna("").astype(str).str.lower().str.strip()
+                sent_counts = sent_counts[sent_counts["sentiment"].isin(["positive", "negative", "neutral"])]
+                sent_counts = sent_counts.groupby("sentiment").size().reset_index(name="count")
                 fig_pie = px.pie(
                     sent_counts,
                     names="sentiment",
@@ -3986,6 +4088,7 @@ def main() -> None:
                     hole=0.45,
                     color="sentiment",
                     color_discrete_map=SENTIMENT_COLORS,
+                    category_orders={"sentiment": ["positive", "neutral", "negative"]},
                 )
                 style_chart(fig_pie, height=400, kind="pie")
                 st.plotly_chart(fig_pie, width="stretch")

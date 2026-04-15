@@ -468,6 +468,7 @@ def main() -> None:
         scale_pos_weight=scale_pos_weight,
         random_state=args.seed,
     )
+    model_params_no_es = {k: v for k, v in model_params.items() if k != "early_stopping_rounds"}
 
     cv_auc_mean = float("nan")
     cv_auc_std = float("nan")
@@ -551,9 +552,11 @@ def main() -> None:
                 f"best_iteration={bi if bi is not None else 'n/a'}"
             )
         else:
+            model = XGBClassifier(**model_params_no_es)
             model.fit(X_train, y_train, verbose=False)
             print("[fit] early stopping skipped: validation split had a single class.")
     except Exception as exc:
+        model = XGBClassifier(**model_params_no_es)
         model.fit(X_train, y_train, verbose=False)
         print(f"[warning] early stopping disabled due to split/fit issue: {exc}")
 

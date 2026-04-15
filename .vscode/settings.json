@@ -3,5 +3,5 @@
     "terminal.integrated.env.osx": {
         "JAVA_HOME": "/opt/homebrew/opt/openjdk@17"
     },
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:venv"
 }
