@@ -1,0 +1,3 @@
+id,created_at,updated_at,deleted_at,first_name,last_name,timezone,country,status,type,longitude,latitude,contacts_backfilled
+1,2026-01-01T09:00:00Z,2026-01-01T09:00:00Z,,Alex,Seed,UTC,US,active,customer,-122.4194,37.7749,true
+2,2026-01-02T10:30:00Z,2026-01-02T10:30:00Z,,Sam,Schema,UTC,US,active,customer,-73.935242,40.73061,false

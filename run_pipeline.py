@@ -25,6 +25,38 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def preflight_secret_data_check() -> None:
+    repo_root = Path(__file__).resolve().parent
+    secret_dir = repo_root / "secret_data"
+    required_files = [
+        "maya_users.csv",
+        "maya_sessions.csv",
+        "maya_feedbacks.csv",
+        "maya_whatsapp_messages.csv",
+    ]
+
+    if not secret_dir.exists() or not any(secret_dir.iterdir()):
+        print("[WARN] secret_data/ is missing or empty.")
+        print("[WARN] Run `make setup-dev` to initialize schema-validation seed files.")
+        return
+
+    # Safety note: tiny seed files should help schema checks, not be treated as real training data.
+    present_required = [secret_dir / name for name in required_files if (secret_dir / name).exists()]
+    if present_required:
+        row_counts: list[int] = []
+        for p in present_required:
+            try:
+                with p.open("r", encoding="utf-8") as f:
+                    # Data rows only (exclude header).
+                    rows = max(sum(1 for _ in f) - 1, 0)
+                    row_counts.append(rows)
+            except Exception:
+                pass
+        if row_counts and max(row_counts) <= 2:
+            print("[WARN] Detected tiny seed CSVs in secret_data/ (schema-validation only).")
+            print("[WARN] Replace with real data before full ML training for meaningful results.")
+
+
 @dataclass(frozen=True)
 class Step:
     id: str
@@ -144,6 +176,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    preflight_secret_data_check()
     redis_url = os.getenv("REDIS_URL", "").strip()
     auto_include = bool(redis_url) and not bool(args.no_redis_publish)
     include_redis_publish = bool(args.include_redis_publish) or auto_include
