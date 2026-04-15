@@ -1328,6 +1328,47 @@ def cardiff_sentiment_scores(
     return out
 
 
+def enforce_cardiff_sentiment(
+    data: pd.DataFrame,
+    text_col: str = "message",
+    group_col: str = "user_id",
+    time_col: str = "created_at",
+    context_window: int = 4,
+) -> pd.DataFrame:
+    if data.empty:
+        return data
+
+    out = data.copy()
+    scored = cardiff_sentiment_scores(
+        out,
+        text_col=text_col,
+        group_col=group_col,
+        time_col=time_col,
+        context_window=context_window,
+    )
+    if not scored.empty and "sentiment_source" in scored.columns and scored["sentiment_source"].eq("cardiffnlp_twitter_roberta").any():
+        out = scored
+
+    out["sentiment_score"] = pd.to_numeric(out.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+    if "sentiment_label" not in out.columns:
+        out["sentiment_label"] = out["sentiment_score"].apply(polarity_label)
+    else:
+        lbl = out["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
+        valid = {"positive", "negative", "neutral"}
+        out["sentiment_label"] = lbl.where(lbl.isin(valid), out["sentiment_score"].apply(polarity_label))
+
+    conf_raw = out["sentiment_confidence"] if "sentiment_confidence" in out.columns else pd.Series(np.nan, index=out.index)
+    conf = pd.to_numeric(conf_raw, errors="coerce")
+    if not isinstance(conf, pd.Series):
+        conf = pd.Series(conf, index=out.index)
+    out["sentiment_confidence"] = conf.fillna(out["sentiment_score"].abs()).clip(0.0, 1.0)
+
+    if "sentiment_source" not in out.columns:
+        out["sentiment_source"] = "cardiff_unavailable_fallback"
+    out["sentiment_source"] = out["sentiment_source"].fillna("cardiff_unavailable_fallback").astype(str)
+    return out
+
+
 @st.cache_data(show_spinner=False)
 def load_sentiment_table() -> pd.DataFrame:
     # Fast path: if precomputed sentiment artifact exists, use it to avoid expensive re-inference on page load.
@@ -1354,51 +1395,21 @@ def load_sentiment_table() -> pd.DataFrame:
                     cached["created_at"] = pd.to_datetime(cached["created_at"], errors="coerce", utc=True)
                 else:
                     cached["created_at"] = pd.NaT
-                if {
-                    "sentiment_score",
-                    "message",
-                    "user_id",
-                    "created_at",
-                }.issubset(cached.columns):
-                    cached = strengthen_whatsapp_sentiment(
-                        cached,
-                        text_col="message",
-                        score_col="sentiment_score",
-                        label_col="sentiment_label",
-                        group_col="user_id",
-                        time_col="created_at",
-                        context_window=4,
-                    )
-                if "polarity" not in cached.columns and "sentiment_score" in cached.columns:
-                    cached["polarity"] = pd.to_numeric(cached["sentiment_score"], errors="coerce").fillna(0.0)
-                cached["polarity"] = pd.to_numeric(cached.get("polarity"), errors="coerce").fillna(0.0)
-                cached = apply_negative_boost_from_text(cached, text_col="message", polarity_col="polarity")
+                cached = enforce_cardiff_sentiment(
+                    cached,
+                    text_col="message",
+                    group_col="user_id",
+                    time_col="created_at",
+                    context_window=4,
+                )
+                cached["polarity"] = pd.to_numeric(cached.get("sentiment_score"), errors="coerce").fillna(0.0)
                 if "subjectivity" not in cached.columns:
                     cached["subjectivity"] = cached["polarity"].abs().clip(0.0, 1.0)
                 cached["subjectivity"] = pd.to_numeric(cached.get("subjectivity"), errors="coerce").fillna(0.0)
-                if "sentiment" not in cached.columns:
-                    if "sentiment_label" in cached.columns:
-                        lbl = cached["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
-                        cached["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
-                    else:
-                        cached["sentiment"] = cached["polarity"].apply(polarity_label)
-                # Some upstream artifacts can contain placeholder labels like "undefined".
-                sent = cached["sentiment"].fillna("").astype(str).str.lower().str.strip()
-                cached["sentiment"] = sent.where(sent.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
-                target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
-                neutral_share = float(cached["sentiment"].eq("neutral").mean()) if len(cached) else 1.0
-                if neutral_share > max(0.80, target_neutral + 0.15):
-                    calibrated_labels, thr = calibrate_sentiment_labels(
-                        cached.get("polarity", pd.Series(dtype="float64")),
-                        target_neutral_share=target_neutral,
-                    )
-                    if not calibrated_labels.empty:
-                        cached["sentiment"] = calibrated_labels
-                        cached["sentiment_threshold_used"] = float(thr)
+                lbl = cached.get("sentiment_label", "").fillna("").astype(str).str.lower().str.strip()
+                cached["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
                 if "source" not in cached.columns:
                     cached["source"] = "user_message"
-                if "sentiment_source" not in cached.columns:
-                    cached["sentiment_source"] = "artifact_cache"
                 return cached
         except Exception:
             pass
@@ -1486,58 +1497,17 @@ def load_sentiment_table() -> pd.DataFrame:
     data = data[data["message"].str.len() > 0]
     data["created_at"] = pd.to_datetime(data["created_at"], errors="coerce", utc=True)
 
-    if {"sentiment_score", "message", "user_id", "created_at"}.issubset(data.columns):
-        data = strengthen_whatsapp_sentiment(
-            data,
-            text_col="message",
-            score_col="sentiment_score",
-            label_col="sentiment_label",
-            group_col="user_id",
-            time_col="created_at",
-            context_window=4,
-        )
-
-    enable_hf_contextual = os.getenv("MAYA_ENABLE_CONTEXTUAL_HF", "0").strip().lower() in {"1", "true", "yes"}
-    if enable_hf_contextual:
-        contextual = contextual_hf_sentiment(data)
-        if "sentiment_source" in contextual.columns and contextual["sentiment_source"].eq("huggingface_contextual").any():
-            return contextual
-
-    # Fallback path if HF models are unavailable.
-    if "sentiment_score" in data.columns:
-        data["polarity"] = pd.to_numeric(data["sentiment_score"], errors="coerce")
-    else:
-        data["polarity"] = np.nan
-
-    missing_polarity = data["polarity"].isna()
-    if missing_polarity.any():
-        sent = data.loc[missing_polarity, "message"].apply(heuristic_sentiment_fallback)
-        data.loc[missing_polarity, "polarity"] = sent.str[0].values
-        data.loc[missing_polarity, "subjectivity"] = sent.str[1].values
-    else:
-        data["subjectivity"] = data["polarity"].astype(float).abs().clip(0.0, 1.0)
-
-    data["polarity"] = pd.to_numeric(data["polarity"], errors="coerce").fillna(0.0)
-    data = apply_negative_boost_from_text(data, text_col="message", polarity_col="polarity")
-    data["subjectivity"] = pd.to_numeric(data["subjectivity"], errors="coerce").fillna(0.0)
-    if "sentiment_label" in data.columns:
-        lbl = data["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
-        data["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), data["polarity"].apply(polarity_label))
-    else:
-        data["sentiment"] = data["polarity"].apply(polarity_label)
-    sent = data["sentiment"].fillna("").astype(str).str.lower().str.strip()
-    data["sentiment"] = sent.where(sent.isin(["positive", "negative", "neutral"]), data["polarity"].apply(polarity_label))
-    target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
-    neutral_share = float(data["sentiment"].eq("neutral").mean()) if len(data) else 1.0
-    if neutral_share > max(0.80, target_neutral + 0.15):
-        calibrated_labels, thr = calibrate_sentiment_labels(
-            data.get("polarity", pd.Series(dtype="float64")),
-            target_neutral_share=target_neutral,
-        )
-        if not calibrated_labels.empty:
-            data["sentiment"] = calibrated_labels
-            data["sentiment_threshold_used"] = float(thr)
-    data["sentiment_source"] = "heuristic_or_flink_fallback"
+    data = enforce_cardiff_sentiment(
+        data,
+        text_col="message",
+        group_col="user_id",
+        time_col="created_at",
+        context_window=4,
+    )
+    data["polarity"] = pd.to_numeric(data.get("sentiment_score"), errors="coerce").fillna(0.0)
+    data["subjectivity"] = data["polarity"].abs().clip(0.0, 1.0)
+    lbl = data.get("sentiment_label", "").fillna("").astype(str).str.lower().str.strip()
+    data["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), data["polarity"].apply(polarity_label))
     return data
 
 
@@ -2084,7 +2054,6 @@ def load_xgb_target_report() -> pd.DataFrame:
     return rep
 
 
-@st.cache_data(show_spinner=False)
 def load_xgb_user_predictions() -> pd.DataFrame:
     expected = ["user_id", "target", "pred_label", "pred_prob_positive", "predicted_class", "confidence"]
     if XGB_PREDICTIONS_PATH.exists():
@@ -2113,7 +2082,8 @@ def load_xgb_user_predictions() -> pd.DataFrame:
 def get_xgb_model_artifact_status() -> tuple[bool, str]:
     for p in XGB_MODEL_PATH_CANDIDATES:
         if p.exists():
-            return True, f"{p.name} ({p.stat().st_mtime:.0f})"
+            mtime = pd.to_datetime(p.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S")
+            return True, f"{p.name} - updated {mtime}"
     return False, "Not found"
 
 
@@ -2124,6 +2094,7 @@ def compute_xgb_prediction_health(pred_df: pd.DataFrame) -> Dict[str, float | bo
             "positive_rate": float("nan"),
             "negative_rate": float("nan"),
             "dominance": float("nan"),
+            "probability_std": float("nan"),
             "avg_confidence": float("nan"),
             "confidence_std": float("nan"),
             "collapse_flag": False,
@@ -2139,6 +2110,7 @@ def compute_xgb_prediction_health(pred_df: pd.DataFrame) -> Dict[str, float | bo
     pos_rate = float((classes == "positive").mean())
     neg_rate = float((classes == "negative").mean())
     dominance = float(max(pos_rate, neg_rate))
+    prob_std = float(probs.std(ddof=0))
     confidence = pd.to_numeric(pred_df.get("confidence"), errors="coerce")
     if confidence.isna().all():
         confidence = (2.0 * (probs - 0.5).abs()).clip(0.0, 1.0)
@@ -2147,12 +2119,14 @@ def compute_xgb_prediction_health(pred_df: pd.DataFrame) -> Dict[str, float | bo
 
     avg_conf = float(confidence.mean())
     conf_std = float(confidence.std(ddof=0))
-    collapse_flag = bool(dominance >= 0.95 and conf_std <= 0.08)
+    # Match training collapse heuristic: high dominance + very low probability spread.
+    collapse_flag = bool(dominance >= 0.90 and prob_std <= 0.08)
     return {
         "total": total,
         "positive_rate": pos_rate,
         "negative_rate": neg_rate,
         "dominance": dominance,
+        "probability_std": prob_std,
         "avg_confidence": avg_conf,
         "confidence_std": conf_std,
         "collapse_flag": collapse_flag,
@@ -2564,84 +2538,13 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
         s["sentiment_label"] = s["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
         s["sentiment_label"] = s["sentiment_label"].replace({"": "neutral"})
 
-    sentiment_mode = os.getenv("MAYA_WHATSAPP_SENTIMENT_MODE", "cardiff_only").strip().lower() or "cardiff_only"
-    enable_cardiff_ui = os.getenv("MAYA_ENABLE_CARDIFF_UI", "1").strip().lower() in {"1", "true", "yes"}
-    if enable_cardiff_ui and sentiment_mode in {"cardiff_only", "cardiff_gru"}:
-        scored = cardiff_sentiment_scores(
-            s,
-            text_col="message",
-            group_col="user_id",
-            time_col="created_at",
-            context_window=4,
-        )
-        if not scored.empty and "sentiment_source" in scored.columns and scored["sentiment_source"].eq("cardiffnlp_twitter_roberta").any():
-            s = scored
-
-    if sentiment_mode == "cardiff_only":
-        s["sentiment_score"] = pd.to_numeric(s.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-        if "sentiment_label" not in s.columns:
-            s["sentiment_label"] = s["sentiment_score"].apply(polarity_label)
-        else:
-            lbl = s["sentiment_label"].fillna("").astype(str).str.lower().str.strip()
-            valid = {"positive", "negative", "neutral"}
-            s["sentiment_label"] = lbl.where(lbl.isin(valid), s["sentiment_score"].apply(polarity_label))
-
-        conf_raw = s["sentiment_confidence"] if "sentiment_confidence" in s.columns else pd.Series(np.nan, index=s.index)
-        conf = pd.to_numeric(conf_raw, errors="coerce")
-        if not isinstance(conf, pd.Series):
-            conf = pd.Series(conf, index=s.index)
-        if conf.isna().all() or float(conf.fillna(0.0).max()) <= 0.01:
-            conf = s["sentiment_score"].abs().clip(0.0, 1.0)
-        s["sentiment_confidence"] = conf.fillna(s["sentiment_score"].abs()).clip(0.0, 1.0)
-
-        if "sentiment_source" not in s.columns:
-            s["sentiment_source"] = "artifact_or_fallback"
-        s["sentiment_source"] = s["sentiment_source"].fillna("artifact_or_fallback").astype(str)
-
-        target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
-        neutral_share = float(s["sentiment_label"].eq("neutral").mean()) if len(s) else 1.0
-        if neutral_share > max(0.80, target_neutral + 0.15):
-            calibrated_labels, thr = calibrate_sentiment_labels(
-                s.get("sentiment_score", pd.Series(dtype="float64")),
-                target_neutral_share=target_neutral,
-            )
-            if not calibrated_labels.empty:
-                s["sentiment_label"] = calibrated_labels
-                s["sentiment_threshold_used"] = float(thr)
-
-        if "role" not in s.columns:
-            s["role"] = "user"
-        for c in cols:
-            if c not in s.columns:
-                s[c] = np.nan
-        return s[cols]
-
-    s = strengthen_whatsapp_sentiment(
+    s = enforce_cardiff_sentiment(
         s,
         text_col="message",
-        score_col="sentiment_score",
-        label_col="sentiment_label",
         group_col="user_id",
         time_col="created_at",
         context_window=4,
     )
-    s = apply_gru_sequence_context(
-        s,
-        text_col="message",
-        score_col="sentiment_score",
-        label_col="sentiment_label",
-        group_col="user_id",
-        time_col="created_at",
-    )
-
-    target_neutral = float(os.getenv("MAYA_SENTIMENT_TARGET_NEUTRAL", "0.65"))
-    calibrated_labels, thr = calibrate_sentiment_labels(
-        s.get("sentiment_score", pd.Series(dtype="float64")),
-        target_neutral_share=target_neutral,
-    )
-    if not calibrated_labels.empty:
-        s["sentiment_label"] = calibrated_labels
-        s["sentiment_threshold_used"] = float(thr)
 
     if "role" not in s.columns:
         s["role"] = "user"
@@ -3378,7 +3281,8 @@ def main() -> None:
                         "Recheck target balance and training labels before trusting SHAP outputs."
                     )
                 elif float(health["dominance"]) >= 0.85:
-                    st.warning("Prediction mix is heavily skewed. Monitor class balance and probability spread each run.")
+                    if float(health.get("probability_std", np.nan)) <= 0.10:
+                        st.warning("Prediction mix is heavily skewed. Monitor class balance and probability spread each run.")
 
                 improve_view = pred_summary.copy()
                 improve_view["confidence"] = pd.to_numeric(improve_view.get("confidence"), errors="coerce")
@@ -3454,8 +3358,10 @@ def main() -> None:
                     u3.metric("Pos:Neg Ratio", "N/A")
                 u4.metric("Model Artifact", "Present" if model_exists else "Missing")
                 st.caption(f"Model file: {model_name}")
+                if "model_artifact" in report.columns and pd.notna(r.get("model_artifact", np.nan)):
+                    st.caption(f"Reported path: {str(r.get('model_artifact'))}")
                 if not model_exists:
-                    st.info("Model weights are not saved yet. Add model.save_model(...) in training to persist run artifacts.")
+                    st.info("No saved XGBoost model artifact found. Re-run training to generate artifacts/xgb/xgb_model.json.")
 
             if pred_df.empty:
                 st.info("No xgb_user_predictions.csv found. Re-run train_xgb_shap_sentiment.py to generate per-user predictions.")

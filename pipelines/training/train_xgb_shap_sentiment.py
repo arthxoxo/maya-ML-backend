@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out_importance", type=str, default=str(base / "xgb_embedding_feature_importance.csv"))
     p.add_argument("--out_target_report", type=str, default=str(base / "xgb_target_report.csv"))
     p.add_argument("--out_predictions", type=str, default=str(base / "xgb_user_predictions.csv"))
+    p.add_argument("--out_model", type=str, default=str(base / "xgb_model.json"))
     p.add_argument("--winsor_q_low", type=float, default=0.01)
     p.add_argument("--winsor_q_high", type=float, default=0.99)
     p.add_argument("--low_variance_threshold", type=float, default=1e-6)
@@ -171,6 +172,73 @@ def preprocess_embedding_matrix(
         "corr_drop_threshold": float(corr_drop_threshold),
     }
     return work, stats
+
+
+def rebalance_binary_train_data(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    seed: int,
+) -> tuple[pd.DataFrame, pd.Series, dict[str, int | bool]]:
+    X_in = X_train.reset_index(drop=True).copy()
+    y_in = pd.Series(y_train).reset_index(drop=True).astype(int)
+
+    meta: dict[str, int | bool] = {
+        "applied": False,
+        "original_rows": int(len(y_in)),
+        "original_neg": int((y_in == 0).sum()),
+        "original_pos": int((y_in == 1).sum()),
+        "balanced_rows": int(len(y_in)),
+        "balanced_neg": int((y_in == 0).sum()),
+        "balanced_pos": int((y_in == 1).sum()),
+    }
+
+    if y_in.nunique() < 2:
+        return X_in, y_in, meta
+
+    counts = y_in.value_counts()
+    if len(counts) < 2 or int(counts.iloc[0]) == int(counts.iloc[1]):
+        return X_in, y_in, meta
+
+    majority_class = int(counts.idxmax())
+    minority_class = int(counts.idxmin())
+    majority_count = int(counts.max())
+    minority_count = int(counts.min())
+
+    target_per_class = int(max(2, round((majority_count + minority_count) / 2)))
+
+    train_df = X_in.copy()
+    train_df["_target"] = y_in.values
+    major_df = train_df[train_df["_target"] == majority_class]
+    minor_df = train_df[train_df["_target"] == minority_class]
+
+    major_bal = major_df.sample(
+        n=target_per_class,
+        replace=(len(major_df) < target_per_class),
+        random_state=seed,
+    )
+    minor_bal = minor_df.sample(
+        n=target_per_class,
+        replace=(len(minor_df) < target_per_class),
+        random_state=seed + 1,
+    )
+
+    balanced_df = (
+        pd.concat([major_bal, minor_bal], axis=0, ignore_index=True)
+        .sample(frac=1.0, random_state=seed)
+        .reset_index(drop=True)
+    )
+    y_bal = balanced_df.pop("_target").astype(int)
+    X_bal = balanced_df.copy()
+
+    meta.update(
+        {
+            "applied": True,
+            "balanced_rows": int(len(y_bal)),
+            "balanced_neg": int((y_bal == 0).sum()),
+            "balanced_pos": int((y_bal == 1).sum()),
+        }
+    )
+    return X_bal, y_bal, meta
 
 
 def _normalize_binary_feedback(v) -> Optional[int]:
@@ -441,12 +509,31 @@ def main() -> None:
         X, y, test_size=args.test_size, random_state=args.seed, stratify=strat
     )
 
-    neg = int((y_train == 0).sum())
-    pos = int((y_train == 1).sum())
-    scale_pos_weight = (neg / pos) if pos > 0 else 1.0
+    X_train_model, y_train_model, balance_meta = rebalance_binary_train_data(X_train, y_train, seed=args.seed)
+    if bool(balance_meta.get("applied", False)):
+        print(
+            "[balance] applied train rebalance "
+            f"(orig_neg={balance_meta['original_neg']}, orig_pos={balance_meta['original_pos']} -> "
+            f"bal_neg={balance_meta['balanced_neg']}, bal_pos={balance_meta['balanced_pos']})"
+        )
+    else:
+        print("[balance] train rebalance not applied (already balanced or single-class).")
+
+    neg = int((y_train_model == 0).sum())
+    pos = int((y_train_model == 1).sum())
+    # Only use scale_pos_weight when positive class is the minority.
+    scale_pos_weight = (neg / pos) if (pos > 0 and pos < neg) else 1.0
     min_class_count = int(min(neg, pos))
     requested_cv_folds = max(2, int(args.cv_folds))
     cv_folds_used = int(min(requested_cv_folds, min_class_count)) if min_class_count >= 2 else 0
+
+    class_weight_map: dict[int, float] = {0: 1.0, 1: 1.0}
+    if min_class_count > 0 and neg != pos:
+        if neg < pos:
+            class_weight_map[0] = float(pos / neg)
+        else:
+            class_weight_map[1] = float(neg / pos)
+    sample_weight_train = y_train_model.map(class_weight_map).astype(float)
 
     class_balance_warning = ""
     if min_class_count < 10:
@@ -474,7 +561,7 @@ def main() -> None:
     cv_auc_std = float("nan")
     cv_best_iter_mean = float("nan")
     cv_best_iter_std = float("nan")
-    if cv_folds_used >= 2 and y_train.nunique() > 1:
+    if cv_folds_used >= 2 and y_train_model.nunique() > 1:
         if cv_folds_used < requested_cv_folds:
             print(
                 f"[warning] Requested {requested_cv_folds}-fold CV reduced to {cv_folds_used} due to minority class size."
@@ -482,16 +569,18 @@ def main() -> None:
         cv = StratifiedKFold(n_splits=cv_folds_used, shuffle=True, random_state=args.seed)
         fold_aucs: list[float] = []
         fold_best_iters: list[float] = []
-        for fold_idx, (tr_idx, va_idx) in enumerate(cv.split(X_train, y_train), start=1):
-            X_tr_fold = X_train.iloc[tr_idx]
-            y_tr_fold = y_train.iloc[tr_idx]
-            X_va_fold = X_train.iloc[va_idx]
-            y_va_fold = y_train.iloc[va_idx]
+        for fold_idx, (tr_idx, va_idx) in enumerate(cv.split(X_train_model, y_train_model), start=1):
+            X_tr_fold = X_train_model.iloc[tr_idx]
+            y_tr_fold = y_train_model.iloc[tr_idx]
+            X_va_fold = X_train_model.iloc[va_idx]
+            y_va_fold = y_train_model.iloc[va_idx]
 
             model_fold = XGBClassifier(**model_params)
+            sample_weight_fold = y_tr_fold.map(class_weight_map).astype(float)
             model_fold.fit(
                 X_tr_fold,
                 y_tr_fold,
+                sample_weight=sample_weight_fold,
                 eval_set=[(X_va_fold, y_va_fold)],
                 verbose=False,
             )
@@ -529,18 +618,20 @@ def main() -> None:
     model = XGBClassifier(**model_params)
     best_iteration_final = float("nan")
     try:
-        train_strat = y_train if y_train.nunique() > 1 else None
+        train_strat = y_train_model if y_train_model.nunique() > 1 else None
         X_fit, X_eval, y_fit, y_eval = train_test_split(
-            X_train,
-            y_train,
+            X_train_model,
+            y_train_model,
             test_size=float(args.eval_size),
             random_state=args.seed,
             stratify=train_strat,
         )
         if y_eval.nunique() > 1 and len(X_eval) > 0:
+            sample_weight_fit = y_fit.map(class_weight_map).astype(float)
             model.fit(
                 X_fit,
                 y_fit,
+                sample_weight=sample_weight_fit,
                 eval_set=[(X_eval, y_eval)],
                 verbose=False,
             )
@@ -553,19 +644,25 @@ def main() -> None:
             )
         else:
             model = XGBClassifier(**model_params_no_es)
-            model.fit(X_train, y_train, verbose=False)
+            model.fit(X_train_model, y_train_model, sample_weight=sample_weight_train, verbose=False)
             print("[fit] early stopping skipped: validation split had a single class.")
     except Exception as exc:
         model = XGBClassifier(**model_params_no_es)
-        model.fit(X_train, y_train, verbose=False)
+        model.fit(X_train_model, y_train_model, sample_weight=sample_weight_train, verbose=False)
         print(f"[warning] early stopping disabled due to split/fit issue: {exc}")
+
+    # Persist the trained model so the dashboard can load/verify run artifacts.
+    model_out_path = Path(args.out_model)
+    model_out_path.parent.mkdir(parents=True, exist_ok=True)
+    model.save_model(str(model_out_path))
+    print(f"[saved] Model artifact: {model_out_path}")
 
     pred = model.predict(X_test)
     proba = model.predict_proba(X_test)[:, 1]
     acc = accuracy_score(y_test, pred)
     auc = roc_auc_score(y_test, proba) if y_test.nunique() > 1 else float("nan")
     print(f"[metrics] accuracy={acc:.4f} auc={auc if np.isnan(auc) else round(auc, 4)}")
-    print(f"[data] joined_users={len(data)} train={len(X_train)} test={len(X_test)}")
+    print(f"[data] joined_users={len(data)} train={len(X_train_model)} test={len(X_test)}")
     print(f"[target] source={target_meta.get('target_source','unknown')}")
     if target_meta.get("human_label_column"):
         print(f"[target] human_label_column={target_meta['human_label_column']}")
@@ -601,16 +698,29 @@ def main() -> None:
     ).sort_values("pred_prob_positive", ascending=False)
     save_artifact_df(pred_df, "xgb_user_predictions", Path(args.out_predictions), index=False)
 
+    pred_majority_share = float(max((pred_all == 0).mean(), (pred_all == 1).mean()))
+    pred_prob_std = float(np.std(proba_all))
+    collapse_risk_warning = ""
+    if pred_majority_share >= 0.90 and pred_prob_std <= 0.08:
+        collapse_risk_warning = (
+            "Model collapse risk detected: predictions are dominated by one class "
+            "with very low variation. Recheck target balance and training labels before trusting SHAP outputs."
+        )
+        print(f"[warning] {collapse_risk_warning}")
+
     report = {
         "target_source": target_meta.get("target_source", ""),
         "human_label_column": target_meta.get("human_label_column", ""),
         "human_label_rows": target_meta.get("human_label_rows", 0),
         "pseudo_label_rows": target_meta.get("pseudo_label_rows", 0),
         "joined_users": int(len(data)),
-        "train_rows": int(len(X_train)),
+        "train_rows": int(len(X_train_model)),
         "test_rows": int(len(X_test)),
         "train_neg": int(neg),
         "train_pos": int(pos),
+        "train_original_neg": int(balance_meta.get("original_neg", 0)),
+        "train_original_pos": int(balance_meta.get("original_pos", 0)),
+        "train_rebalance_applied": bool(balance_meta.get("applied", False)),
         "scale_pos_weight": float(scale_pos_weight),
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(cv_folds_used),
@@ -622,8 +732,20 @@ def main() -> None:
         "cv_best_iter_std": float(cv_best_iter_std) if not np.isnan(cv_best_iter_std) else np.nan,
         "accuracy": float(acc),
         "auc": float(auc) if not np.isnan(auc) else np.nan,
+        "pred_majority_share": float(pred_majority_share),
+        "pred_prob_std": float(pred_prob_std),
+        "model_collapse_risk": bool(bool(collapse_risk_warning)),
+        "model_artifact": str(model_out_path),
         "warning": " | ".join(
-            [w for w in [target_meta.get("warning", ""), class_balance_warning] if str(w).strip()]
+            [
+                w
+                for w in [
+                    target_meta.get("warning", ""),
+                    class_balance_warning,
+                    collapse_risk_warning,
+                ]
+                if str(w).strip()
+            ]
         ),
         "original_dims": prep_stats["original_dims"],
         "kept_dims": prep_stats["kept_dims"],

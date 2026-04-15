@@ -1,6 +1,6 @@
 signal_name,mean_abs_shap,dim_count,dimensions
+Msg Char Len Mean,0.9824873,7,"emb_0, emb_14, emb_20, emb_3, emb_37, emb_54, emb_60"
+Session Duration Mean,0.9756603,28,"emb_1, emb_11, emb_13, emb_18, emb_2, emb_21, emb_24, emb_28, emb_29, emb_34, emb_40, emb_44, emb_45, emb_46, emb_47, emb_48, emb_49, emb_52, emb_55, emb_56, emb_57, emb_58, emb_6, emb_61, emb_63, emb_7, emb_8, emb_9"
 Account Age Days,0.0,2,"emb_10, emb_16"
 Feedback Char Len Mean,0.0,4,"emb_19, emb_35, emb_5, emb_51"
-Msg Char Len Mean,0.0,7,"emb_0, emb_14, emb_20, emb_3, emb_37, emb_54, emb_60"
 Msg Word Len Mean,0.0,2,"emb_17, emb_39"
-Session Duration Mean,0.0,28,"emb_1, emb_11, emb_13, emb_18, emb_2, emb_21, emb_24, emb_28, emb_29, emb_34, emb_40, emb_44, emb_45, emb_46, emb_47, emb_48, emb_49, emb_52, emb_55, emb_56, emb_57, emb_58, emb_6, emb_61, emb_63, emb_7, emb_8, emb_9"
