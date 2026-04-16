@@ -504,21 +504,28 @@ def main() -> None:
         raise ValueError("All embedding dimensions were removed by preprocessing. Relax preprocessing thresholds.")
     y = data["target"].astype(int).copy()
 
-    strat = y if y.nunique() > 1 else None
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=args.test_size, random_state=args.seed, stratify=strat
-    )
+    # Handle small datasets gracefully for dev/test environments.
+    # stratified split requires at least 2 samples per class in the test set.
+    can_stratify = (y.nunique() > 1) and (y.value_counts().min() >= 2)
+    strat = y if can_stratify else None
+    
+    # Ensure test_size results in at least 1 sample, but if N is tiny, don't split at all for XGB.
+    if len(X) < 5:
+        print("[warning] Dataset too small for reliable train/test split. Using all data for training (SHAP summary mode).")
+        X_train, X_test, y_train, y_test = X, X, y, y
+    else:
+        actual_test_size = max(1, int(len(X) * args.test_size))
+        if actual_test_size < 2 and can_stratify:
+            print("[info] Test size too small for stratified split; disabling stratification.")
+            strat = None
+            
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=args.test_size, random_state=args.seed, stratify=strat
+        )
 
     X_train_model, y_train_model, balance_meta = rebalance_binary_train_data(X_train, y_train, seed=args.seed)
-    if bool(balance_meta.get("applied", False)):
-        print(
-            "[balance] applied train rebalance "
-            f"(orig_neg={balance_meta['original_neg']}, orig_pos={balance_meta['original_pos']} -> "
-            f"bal_neg={balance_meta['balanced_neg']}, bal_pos={balance_meta['balanced_pos']})"
-        )
-    else:
-        print("[balance] train rebalance not applied (already balanced or single-class).")
-
+    # ... rest of rebalance print ...
+    
     neg = int((y_train_model == 0).sum())
     pos = int((y_train_model == 1).sum())
     # Only use scale_pos_weight when positive class is the minority.
@@ -526,6 +533,11 @@ def main() -> None:
     min_class_count = int(min(neg, pos))
     requested_cv_folds = max(2, int(args.cv_folds))
     cv_folds_used = int(min(requested_cv_folds, min_class_count)) if min_class_count >= 2 else 0
+    
+    # Disable CV if samples are too few
+    if len(y_train_model) < 5 or cv_folds_used < 2:
+        print("[info] Skipping CV AUC due to insufficient samples in training split.")
+        cv_folds_used = 0
 
     class_weight_map: dict[int, float] = {0: 1.0, 1: 1.0}
     if min_class_count > 0 and neg != pos:

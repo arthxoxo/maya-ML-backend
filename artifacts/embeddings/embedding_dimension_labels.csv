@@ -1,65 +1,65 @@
 feature,label,anchor_feature,anchor_feature_label,abs_correlation
-emb_0,emb_0 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8601757463547105
-emb_1,emb_1 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.996779497175182
-emb_10,emb_10 - Account Age Days,account_age_days,Account Age Days,0.13147519119764975
-emb_11,emb_11 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.7463999785890393
-emb_12,emb_12 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9528177820758353
-emb_13,emb_13 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8607152215524905
-emb_14,emb_14 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9540007787567809
-emb_15,emb_15 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9683018512950811
-emb_16,emb_16 - Account Age Days,account_age_days,Account Age Days,0.5756566526364837
-emb_17,emb_17 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9233316206483823
-emb_18,emb_18 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9629526261453526
-emb_19,emb_19 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9513984083044715
-emb_2,emb_2 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9983420298600568
-emb_20,emb_20 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9398532162113274
-emb_21,emb_21 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9854269630557374
-emb_22,emb_22 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_23,emb_23 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9477031718669704
-emb_24,emb_24 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8997055951866495
-emb_25,emb_25 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_26,emb_26 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9660220522323568
-emb_27,emb_27 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9754777250309415
-emb_28,emb_28 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.7911789292154009
-emb_29,emb_29 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9345167176214406
-emb_3,emb_3 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,1.0014157291324546
-emb_30,emb_30 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.959760228181617
-emb_31,emb_31 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8620132648321093
-emb_32,emb_32 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_33,emb_33 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9198969058566454
-emb_34,emb_34 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9799225398275445
-emb_35,emb_35 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.47836399994818873
-emb_36,emb_36 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9756938833700212
-emb_37,emb_37 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,1.0063501419921135
-emb_38,emb_38 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.972560391504175
-emb_39,emb_39 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7774841685452178
-emb_4,emb_4 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,1.0004612424885737
-emb_40,emb_40 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9192092680903596
-emb_41,emb_41 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_42,emb_42 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,1.0008352988357083
-emb_43,emb_43 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_44,emb_44 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9121510347516661
-emb_45,emb_45 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0038573278957597
-emb_46,emb_46 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9545267177619393
-emb_47,emb_47 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9989108223725591
-emb_48,emb_48 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.966249633144037
-emb_49,emb_49 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0057818001826657
-emb_5,emb_5 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.8327901485559531
-emb_50,emb_50 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9275866026781421
-emb_51,emb_51 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9697776993351195
-emb_52,emb_52 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0091744503688684
-emb_53,emb_53 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9861492010924505
-emb_54,emb_54 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.973799237911116
-emb_55,emb_55 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9288025829475436
-emb_56,emb_56 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0082627895234348
-emb_57,emb_57 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9475389840579683
-emb_58,emb_58 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8571259801468297
-emb_59,emb_59 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.955207331773971
-emb_6,emb_6 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8007104261049629
-emb_60,emb_60 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8415396002591428
-emb_61,emb_61 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0053653798062114
-emb_62,emb_62 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.005512699262346
-emb_63,emb_63 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.918014032149034
-emb_7,emb_7 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0083061672294285
-emb_8,emb_8 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9483814164687661
-emb_9,emb_9 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9419074886803869
+emb_0,emb_0 - Session Count,session_count,Session Count,0.7660938457642698
+emb_1,emb_1 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.829060601106931
+emb_10,emb_10 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9672258692148982
+emb_11,emb_11 - Account Age Days,account_age_days,Account Age Days,0.38495507522124317
+emb_12,emb_12 - Account Age Days,account_age_days,Account Age Days,0.519604915577615
+emb_13,emb_13 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.5157548529265775
+emb_14,emb_14 - Account Age Days,account_age_days,Account Age Days,0.4901055486919231
+emb_15,emb_15 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.008135441336136
+emb_16,emb_16 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.98266959567178
+emb_17,emb_17 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9388185028000263
+emb_18,emb_18 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9494885655921538
+emb_19,emb_19 - Account Age Days,account_age_days,Account Age Days,0.3864989941039187
+emb_2,emb_2 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_20,emb_20 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.982293053560765
+emb_21,emb_21 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_22,emb_22 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9986475346229423
+emb_23,emb_23 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9569265897139106
+emb_24,emb_24 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.4253227627672687
+emb_25,emb_25 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9943042627171782
+emb_26,emb_26 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0071021752327385
+emb_27,emb_27 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.4410830946413516
+emb_28,emb_28 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0119494236751645
+emb_29,emb_29 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9983887152675525
+emb_3,emb_3 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.5027156027930098
+emb_30,emb_30 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.4552397819745395
+emb_31,emb_31 - Account Age Days,account_age_days,Account Age Days,0.5293037855355232
+emb_32,emb_32 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.85177364038137
+emb_33,emb_33 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.3101556411269194
+emb_34,emb_34 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.4808359058710846
+emb_35,emb_35 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9966176466635591
+emb_36,emb_36 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9106638056385018
+emb_37,emb_37 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8378688159457232
+emb_38,emb_38 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9845700747234319
+emb_39,emb_39 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9492849504708744
+emb_4,emb_4 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.4102208331259019
+emb_40,emb_40 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9773631980941163
+emb_41,emb_41 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9860867502634911
+emb_42,emb_42 - Session Count,session_count,Session Count,0.544065611591001
+emb_43,emb_43 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9733528169423378
+emb_44,emb_44 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0025661458060056
+emb_45,emb_45 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9816403974075661
+emb_46,emb_46 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.5570423680576774
+emb_47,emb_47 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0094963343386574
+emb_48,emb_48 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.7882420387938855
+emb_49,emb_49 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8219875972441335
+emb_5,emb_5 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9226833812743375
+emb_50,emb_50 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9890465301572011
+emb_51,emb_51 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9148792535598163
+emb_52,emb_52 - Account Age Days,account_age_days,Account Age Days,0.4651349878720304
+emb_53,emb_53 - Session Count,session_count,Session Count,0.3778261608922973
+emb_54,emb_54 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_55,emb_55 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9914286603985324
+emb_56,emb_56 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,1.0043712135026912
+emb_57,emb_57 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9862561999685281
+emb_58,emb_58 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.834710724708397
+emb_59,emb_59 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9958017756054557
+emb_6,emb_6 - Account Age Days,account_age_days,Account Age Days,0.4845001021725415
+emb_60,emb_60 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0043271626980637
+emb_61,emb_61 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.5682275061070572
+emb_62,emb_62 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8253616958361559
+emb_63,emb_63 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.9336518827199185
+emb_7,emb_7 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.7465292658339148
+emb_8,emb_8 - Session Duration Mean,session_duration_mean,Session Duration Mean,1.0092420196324623
+emb_9,emb_9 - Account Age Days,account_age_days,Account Age Days,0.4402272305765566

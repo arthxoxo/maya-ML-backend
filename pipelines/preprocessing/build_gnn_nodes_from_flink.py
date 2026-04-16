@@ -152,9 +152,25 @@ def main() -> None:
         messages_secret = read_secret_csv("whatsapp_messages.csv")
         if not messages_secret.empty:
             messages_secret = messages_secret.rename(columns={"id": "message_id"})
-            messages_secret["sentiment_score"] = 0.0
-            messages_secret["sentiment_label"] = "neutral"
+            # To provide fallback sentiment scores when Flink hasn't run:
+            import re
+            def _heuristic(text: str) -> float:
+                s = str(text or "").strip().lower()
+                if not s: return 0.0
+                tokens = re.findall(r"[a-z']+", s)
+                if not tokens: return 0.0
+                pos_hits = sum(1 for t in tokens if t in {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou", "resolved", "perfect", "excellent", "fast", "smooth"})
+                neg_hits = sum(1 for t in tokens if t in {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"})
+                raw = (pos_hits - neg_hits) / max(len(tokens), 6)
+                if "!" in s: raw *= 1.1
+                if any(w in s for w in ["not good", "not happy", "never again"]): raw -= 0.2
+                if any(w in s for w in ["not bad", "works now", "all good"]): raw += 0.2
+                return float(max(min(raw * 2.0, 1.0), -1.0))
+            
+            messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
+            messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
             messages_raw = align_columns(messages_secret, messages_cols)
+
 
     users_raw = normalize_raw_table(users_raw, users_cols)
     sessions_raw = normalize_raw_table(sessions_raw, sessions_cols)
