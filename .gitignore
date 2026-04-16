@@ -228,3 +228,6 @@ persona_shap_summary.png
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+main_venv/
+.python-version-flink
+.python-version-main

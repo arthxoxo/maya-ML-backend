@@ -15,4 +15,4 @@ transformers>=4.35
 
 redis>=5.0
 confluent-kafka>=2.3
-pyflink>=1.19
+setuptools<81
