@@ -129,7 +129,7 @@ def main() -> None:
     messages_cols = [
         "message_id", "session_id", "sender_user_id", "role", "message", "created_at", "updated_at",
         "deleted_at", "input_tokens", "output_tokens", "model_name", "cost_usd", "recipient_name",
-        "status", "sentiment_score", "sentiment_label",
+        "status", "sentiment_score", "sentiment_confidence", "sentiment_label",
     ]
 
     # Fallback path for local/offline recovery when Flink sinks are empty.
@@ -168,6 +168,7 @@ def main() -> None:
                 return float(max(min(raw * 2.0, 1.0), -1.0))
             
             messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
+            messages_secret["sentiment_confidence"] = 0.5
             messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
             messages_raw = align_columns(messages_secret, messages_cols)
 
@@ -269,7 +270,7 @@ def main() -> None:
         messages_nodes = pd.DataFrame(columns=[
             "message_id", "session_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
             "recipient_name", "message", "message_char_len", "message_word_len", "input_tokens", "output_tokens",
-            "cost_usd", "sentiment_score", "sentiment_label",
+            "cost_usd", "sentiment_score", "sentiment_confidence", "sentiment_label",
         ])
     else:
         msg["message_id"] = pd.to_numeric(msg["message_id"], errors="coerce").astype("Int64")
@@ -289,12 +290,13 @@ def main() -> None:
         msg["output_tokens"] = pd.to_numeric(msg["output_tokens"], errors="coerce").fillna(0)
         msg["cost_usd"] = pd.to_numeric(msg["cost_usd"], errors="coerce").fillna(0)
         msg["sentiment_score"] = pd.to_numeric(msg["sentiment_score"], errors="coerce").fillna(0)
+        msg["sentiment_confidence"] = pd.to_numeric(msg["sentiment_confidence"], errors="coerce").fillna(0)
         msg["sentiment_label"] = msg["sentiment_label"].fillna("neutral").astype(str).str.lower()
         messages_nodes = msg[
             [
                 "message_id", "session_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
                 "recipient_name", "message", "message_char_len", "message_word_len", "input_tokens", "output_tokens",
-                "cost_usd", "sentiment_score", "sentiment_label",
+                "cost_usd", "sentiment_score", "sentiment_confidence", "sentiment_label",
             ]
         ]
 

@@ -102,14 +102,15 @@ def _get_hf_sentiment_pipe():
     return _HF_SENTIMENT_PIPE
 
 
-def _hf_sentiment_score(text: str) -> float:
+def _hf_sentiment_full(text: str) -> tuple[float, float]:
     msg = str(text or "").strip()
     if not msg:
-        return 0.0
+        return 0.0, 0.0
 
     pipe = _get_hf_sentiment_pipe()
     if pipe is None:
-        return _heuristic_sentiment_score(msg)
+        val = _heuristic_sentiment_score(msg)
+        return val, abs(val)
 
     try:
         out = pipe(msg[:512], truncation=True, max_length=256)
@@ -122,14 +123,22 @@ def _hf_sentiment_score(text: str) -> float:
             val = -score
         else:
             val = 0.0
-        return float(max(min(val, 1.0), -1.0))
+        return float(max(min(val, 1.0), -1.0)), score
     except Exception:
-        return _heuristic_sentiment_score(msg)
+        val = _heuristic_sentiment_score(msg)
+        return val, abs(val)
 
 
 @udf(result_type=DataTypes.DOUBLE())
 def compute_sentiment(text: str) -> float:
-    return round(_hf_sentiment_score(text), 4)
+    score, _ = _hf_sentiment_full(text)
+    return round(score, 4)
+
+
+@udf(result_type=DataTypes.DOUBLE())
+def compute_sentiment_confidence(text: str) -> float:
+    _, conf = _hf_sentiment_full(text)
+    return round(conf, 4)
 
 
 @udf(result_type=DataTypes.STRING())
@@ -162,6 +171,7 @@ def main() -> None:
     t_env.get_config().set("pipeline.jars", f"file://{kafka_jar.resolve()}")
 
     t_env.create_temporary_function("compute_sentiment", compute_sentiment)
+    t_env.create_temporary_function("compute_sentiment_confidence", compute_sentiment_confidence)
     t_env.create_temporary_function("sentiment_label", sentiment_label)
 
     # Kafka sources
@@ -357,6 +367,7 @@ def main() -> None:
             `recipient_name`      STRING,
             `status`              STRING,
             `sentiment_score`     DOUBLE,
+            `sentiment_confidence` DOUBLE,
             `sentiment_label`     STRING
         ) WITH (
             'connector' = 'filesystem',
@@ -373,6 +384,7 @@ def main() -> None:
             `session_id`      INT,
             `role`            STRING,
             `sentiment_score` DOUBLE,
+            `sentiment_confidence` DOUBLE,
             `sentiment_label` STRING
         ) WITH ('connector' = 'print')
         """
@@ -448,6 +460,7 @@ def main() -> None:
             recipient_name,
             status,
             sentiment_score,
+            sentiment_confidence,
             sentiment_label(sentiment_score) AS sentiment_label
         FROM (
             SELECT
@@ -465,7 +478,8 @@ def main() -> None:
                 cost_usd,
                 recipient_name,
                 status,
-                compute_sentiment(message) AS sentiment_score
+                compute_sentiment(message) AS sentiment_score,
+                compute_sentiment_confidence(message) AS sentiment_confidence
             FROM raw_whatsapp_messages
             WHERE LOWER(COALESCE(role, '')) = 'user'
         ) m
@@ -479,13 +493,15 @@ def main() -> None:
             session_id,
             role,
             sentiment_score,
+            sentiment_confidence,
             sentiment_label(sentiment_score) AS sentiment_label
         FROM (
             SELECT
                 id AS message_id,
                 session_id,
                 role,
-                compute_sentiment(message) AS sentiment_score
+                compute_sentiment(message) AS sentiment_score,
+                compute_sentiment_confidence(message) AS sentiment_confidence
             FROM raw_whatsapp_messages
             WHERE LOWER(COALESCE(role, '')) = 'user'
         ) c
