@@ -2785,6 +2785,10 @@ def main() -> None:
             "Per-User Sentiment Analysis",
         ],
     )
+    st.sidebar.divider()
+    if st.sidebar.button("🔄 Refresh Data", width="stretch"):
+        st.cache_data.clear()
+        st.rerun()
 
     if page in {"Global Sentiment Analysis", "Per-User Sentiment Analysis"}:
         wa = load_whatsapp_sentiment_messages()

@@ -15,12 +15,14 @@ Usage:
     python feature_engineering.py
 """
 
+import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from datetime import datetime
 import warnings
 import re
+from tqdm import tqdm
 
 from app_config import FEATURE_OUTPUT_DIR, RAW_DATA_DIR
 
@@ -45,20 +47,32 @@ _POSITIVE_TERMS = {
 # ── Data Loading ─────────────────────────────────────────────────────────────
 
 
+def _find_csv(folder: Path, name: str) -> Path:
+    """Try finding 'maya_name.csv' then 'name.csv'."""
+    p1 = folder / f"maya_{name}"
+    p2 = folder / name
+    if p1.exists():
+        return p1
+    if p2.exists():
+        return p2
+    # Fallback to direct name so pd.read_csv fails with a clear message if missing
+    return p2
+
+
 def load_data():
     """Load all CSVs with proper date parsing."""
     print("📂  Loading CSVs...")
 
-    users = pd.read_csv(DATA_DIR / "users.csv")
+    users = pd.read_csv(_find_csv(DATA_DIR, "users.csv"))
     users["created_at"] = pd.to_datetime(users["created_at"], format="mixed", utc=True, errors="coerce")
 
-    messages = pd.read_csv(DATA_DIR / "whatsapp_messages.csv")
+    messages = pd.read_csv(_find_csv(DATA_DIR, "whatsapp_messages.csv"))
     messages["created_at"] = pd.to_datetime(messages["created_at"], format="mixed", utc=True, errors="coerce")
 
-    sessions = pd.read_csv(DATA_DIR / "sessions.csv")
+    sessions = pd.read_csv(_find_csv(DATA_DIR, "sessions.csv"))
     sessions["created_at"] = pd.to_datetime(sessions["created_at"], format="mixed", utc=True, errors="coerce")
 
-    feedbacks = pd.read_csv(DATA_DIR / "feedbacks.csv")
+    feedbacks = pd.read_csv(_find_csv(DATA_DIR, "feedbacks.csv"))
     feedbacks["created_at"] = pd.to_datetime(feedbacks["created_at"], format="mixed", utc=True, errors="coerce")
 
     print(f"    Users:    {len(users):>7,}")
@@ -114,31 +128,41 @@ def score_texts_sentiment(texts: list[str], batch_size: int = 32) -> tuple[np.nd
     if not texts:
         return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
 
-    pipe = _get_hf_pipeline()
+    fast_mode = os.getenv("MAYA_PIPELINE_FAST", "0").lower() in ("1", "true", "yes")
+    pipe = _get_hf_pipeline() if not fast_mode else None
+
     if pipe is None:
+        if fast_mode:
+            print(f"    [Fast Mode] Using heuristic sentiment for {len(texts):,} messages...")
         vals = [_heuristic_sentiment_subjectivity(t) for t in texts]
         pol = np.array([v[0] for v in vals], dtype=np.float32)
         subj = np.array([v[1] for v in vals], dtype=np.float32)
         return pol, subj
 
+    print(f"    [Transformer] Scoring {len(texts):,} messages via {HF_SENTIMENT_MODEL}...")
     try:
-        out = pipe(texts, truncation=True, max_length=256, batch_size=max(1, int(batch_size)))
-        pol_list: list[float] = []
-        subj_list: list[float] = []
-        for rec in out:
-            label = str(rec.get("label", "")).strip().lower()
-            score = float(rec.get("score", 0.0))
-            if "positive" in label or label in {"label_2", "2"}:
-                p = score
-            elif "negative" in label or label in {"label_0", "0"}:
-                p = -score
-            else:
-                p = 0.0
-            s = min(max(0.3 + 0.7 * abs(p), 0.0), 1.0)
-            pol_list.append(round(float(max(min(p, 1.0), -1.0)), 4))
-            subj_list.append(round(float(s), 4))
-        return np.array(pol_list, dtype=np.float32), np.array(subj_list, dtype=np.float32)
-    except Exception:
+        results_pol = []
+        results_subj = []
+        # Process in chunks with tqdm progress bar
+        for i in tqdm(range(0, len(texts), batch_size), desc="    Sentiment", unit="batch", leave=False):
+            chunk = texts[i : i + batch_size]
+            out = pipe(chunk, truncation=True, max_length=256)
+            for rec in out:
+                label = str(rec.get("label", "")).strip().lower()
+                score = float(rec.get("score", 0.0))
+                if "positive" in label or label in {"label_2", "2"}:
+                    p = score
+                elif "negative" in label or label in {"label_0", "0"}:
+                    p = -score
+                else:
+                    p = 0.0
+                s = min(max(0.3 + 0.7 * abs(p), 0.0), 1.0)
+                results_pol.append(round(float(max(min(p, 1.0), -1.0)), 4))
+                results_subj.append(round(float(s), 4))
+
+        return np.array(results_pol, dtype=np.float32), np.array(results_subj, dtype=np.float32)
+    except Exception as exc:
+        print(f"    [Check] Pipeline error, falling back to heuristic: {exc}")
         vals = [_heuristic_sentiment_subjectivity(t) for t in texts]
         pol = np.array([v[0] for v in vals], dtype=np.float32)
         subj = np.array([v[1] for v in vals], dtype=np.float32)

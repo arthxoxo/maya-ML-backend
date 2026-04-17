@@ -5,7 +5,7 @@ MAIN_PY   := ./main_venv/bin/python
 # Tool paths (ensuring pyenv is reachable)
 PYENV := PATH=/opt/homebrew/bin:$$PATH pyenv
 
-.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data
+.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data pipeline docker-pipeline
 
 setup: setup-all
 
@@ -37,6 +37,12 @@ start-all:
 	@$(MAKE) start-producer &
 	@$(MAKE) start-flink &
 	@$(MAKE) start-dashboard
+
+pipeline:
+	PYTHONPATH=. $(MAIN_PY) run_pipeline.py $(FLAGS)
+
+docker-pipeline:
+	docker compose exec maya-app /app/main_venv/bin/python run_pipeline.py $(FLAGS)
 
 # Legacy support / utility targets
 PREFIX ?= maya:dashboard

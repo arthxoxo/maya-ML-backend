@@ -48,7 +48,13 @@ def read_flink_dir(dir_path: Path) -> pd.DataFrame:
         [
             p
             for p in dir_path.rglob("*")
-            if p.is_file() and not p.name.startswith("_")
+            if p.is_file()
+            # Flink streaming sinks write files named .part-*.inprogress
+            # Accept both finalised files and in-progress part files.
+            # Skip only Flink internal checkpoint/metadata files (_SUCCESS, .crc etc.)
+            and not p.name.startswith("_")
+            and not p.suffix in {".crc", ".json"}
+            and "checkpoint" not in str(p)
         ]
     )
     if not files:

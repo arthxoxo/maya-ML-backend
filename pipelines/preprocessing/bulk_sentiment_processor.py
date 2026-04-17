@@ -1,87 +1,139 @@
-import pandas as pd
-import torch
-from transformers import pipeline
-from tqdm import tqdm
+"""
+Bulk Sentiment Processor — Step 1 of the Maya ML pipeline.
+
+Reads raw whatsapp_messages.csv from secret_data/, runs the CardiffNLP
+RoBERTa model on all user messages, and saves sentiment_scores.csv to
+artifacts/sentiment/. This file is then consumed by:
+  - feature_engineering.py  (Step 2)
+  - build_gnn_nodes_from_flink.py  (Step 3, fallback path)
+  - train_xgb_shap_sentiment.py  (Step 5)
+"""
+
+import os
+import sys
 import time
 from pathlib import Path
-import sys
 
-# Ensure project-root imports resolve
+import pandas as pd
+from tqdm import tqdm
+
+# Ensure project-root imports resolve when run as a module
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app_config import RAW_DATA_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
+
+
+def _find_messages_csv() -> Path:
+    """Try secret_data/, then RAW_DATA_DIR, for both naming conventions."""
+    candidates = [
+        SECRET_DATA_DIR / "whatsapp_messages.csv",
+        SECRET_DATA_DIR / "maya_whatsapp_messages.csv",
+        RAW_DATA_DIR / "whatsapp_messages.csv",
+        RAW_DATA_DIR / "maya_whatsapp_messages.csv",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    raise FileNotFoundError(
+        f"Could not find whatsapp_messages.csv in secret_data/ or RAW_DATA_DIR. "
+        f"Checked: {[str(c) for c in candidates]}"
+    )
+
+
 def main():
-    csv_path = Path("secret_data/whatsapp_messages.csv")
-    output_path = Path("artifacts/sentiment/sentiment_scores.csv")
+    fast_mode = os.getenv("MAYA_PIPELINE_FAST", "0").lower() in ("1", "true", "yes")
+
+    csv_path = _find_messages_csv()
+    output_path = SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not csv_path.exists():
-        print(f"Error: {csv_path} not found.")
+    # If scores already exist and we're in fast mode, skip.
+    if fast_mode and output_path.exists():
+        print(f"[Fast Mode] Sentiment scores already exist at {output_path}, skipping.")
         return
 
     print(f"Loading {csv_path}...")
     df = pd.read_csv(csv_path)
     # Filter for user messages only
     df = df[df["role"].fillna("").str.lower() == "user"].copy()
-    print(f"Processing {len(df)} user messages...")
+    print(f"Processing {len(df):,} user messages...")
 
-    # Hardware acceleration
-    device = "cpu"
-    if torch.backends.mps.is_available():
-        device = "mps"
-    elif torch.cuda.is_available():
-        device = 0
-    print(f"Using device: {device}")
+    if fast_mode:
+        print("[Fast Mode] Using heuristic sentiment (bypassing Transformer)...")
+        import re
+        _NEG = {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
+                "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"}
+        _POS = {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
+                "resolved", "perfect", "excellent", "fast", "smooth"}
 
-    # Load model
-    print("Initializing CardiffNLP RoBERTa model...")
-    pipe = pipeline(
-        "sentiment-analysis",
-        model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-        tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
-        device=device
-    )
+        def _heuristic(text: str):
+            s = str(text or "").strip().lower()
+            if not s:
+                return 0.0, 0.5, "neutral"
+            tokens = re.findall(r"[a-z']+", s)
+            if not tokens:
+                return 0.0, 0.5, "neutral"
+            pos = sum(1 for t in tokens if t in _POS)
+            neg = sum(1 for t in tokens if t in _NEG)
+            raw = float(max(min(((pos - neg) / max(len(tokens), 6)) * 2.0, 1.0), -1.0))
+            lbl = "positive" if raw > 0.1 else ("negative" if raw < -0.1 else "neutral")
+            return round(raw, 4), round(abs(raw), 4), lbl
 
-    batch_size = 32
-    texts = df["message"].fillna("").astype(str).tolist()
-    results = []
+        results_list = [_heuristic(t) for t in df["message"].fillna("").astype(str).tolist()]
+        df["sentiment_score"] = [r[0] for r in results_list]
+        df["sentiment_confidence"] = [r[1] for r in results_list]
+        df["sentiment_label"] = [r[2] for r in results_list]
+    else:
+        import torch
+        from transformers import pipeline
 
-    start_time = time.time()
-    for i in tqdm(range(0, len(texts), batch_size)):
-        batch = texts[i : i + batch_size]
-        # RoBERTa limit is 512 tokens
-        batch = [t[:512] for t in batch]
-        out = pipe(batch, truncation=True, max_length=256)
-        results.extend(out)
-    
-    end_time = time.time()
-    print(f"\nInference complete in {end_time - start_time:.2f}s")
+        # Hardware acceleration
+        device = "cpu"
+        if torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
+            device = 0
+        print(f"Using device: {device}")
 
-    # Map results to polarized scores and confidence
-    scores = []
-    confs = []
-    labels = []
+        print("Initializing CardiffNLP RoBERTa model...")
+        pipe = pipeline(
+            "sentiment-analysis",
+            model="cardiffnlp/twitter-roberta-base-sentiment-latest",
+            tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
+            device=device,
+        )
 
-    for r in results:
-        label = r["label"].lower()
-        score = r["score"] # This is the softmax probability
-        
-        confs.append(round(score, 4))
-        labels.append(label)
-        
-        if "positive" in label or label == "label_2":
-            scores.append(round(score, 4))
-        elif "negative" in label or label == "label_0":
-            scores.append(round(-score, 4))
-        else:
-            scores.append(0.0)
+        batch_size = 32
+        texts = df["message"].fillna("").astype(str).tolist()
+        scores = []
+        confs = []
+        labels = []
 
-    df["sentiment_score"] = scores
-    df["sentiment_confidence"] = confs
-    df["sentiment_label"] = labels
+        start_time = time.time()
+        for i in tqdm(range(0, len(texts), batch_size), desc="Sentiment", unit="batch"):
+            batch = [t[:512] for t in texts[i : i + batch_size]]
+            out = pipe(batch, truncation=True, max_length=256)
+            for r in out:
+                label = r["label"].lower()
+                score = r["score"]
+                confs.append(round(score, 4))
+                labels.append(label)
+                if "positive" in label or label == "label_2":
+                    scores.append(round(score, 4))
+                elif "negative" in label or label == "label_0":
+                    scores.append(round(-score, 4))
+                else:
+                    scores.append(0.0)
 
-    print(f"Saving results to {output_path}...")
+        print(f"\nInference complete in {time.time() - start_time:.2f}s")
+        df["sentiment_score"] = scores
+        df["sentiment_confidence"] = confs
+        df["sentiment_label"] = labels
+
+    print(f"Saving {len(df):,} rows to {output_path}...")
     df.to_csv(output_path, index=False)
-    print("Bulk processing ready for dashboard visualization.")
+    print("✅ Bulk sentiment processing complete.")
+
 
 if __name__ == "__main__":
     main()

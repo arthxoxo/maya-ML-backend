@@ -12,6 +12,7 @@ shap>=0.44
 streamlit>=1.30
 plotly>=5.15
 transformers>=4.35
+tqdm>=4.66
 
 redis>=5.0
 confluent-kafka>=2.3

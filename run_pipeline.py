@@ -40,21 +40,31 @@ def preflight_secret_data_check() -> None:
         print("[WARN] Run `make setup-dev` to initialize schema-validation seed files.")
         return
 
-    # Safety note: tiny seed files should help schema checks, not be treated as real training data.
-    present_required = [secret_dir / name for name in required_files if (secret_dir / name).exists()]
-    if present_required:
-        row_counts: list[int] = []
-        for p in present_required:
+    # Support both 'maya_sessions.csv' and 'sessions.csv'
+    found_any = False
+    row_counts: list[int] = []
+    
+    for name in required_files:
+        p = secret_dir / name
+        alt_p = secret_dir / name.replace("maya_", "")
+        target = p if p.exists() else (alt_p if alt_p.exists() else None)
+        
+        if target:
+            found_any = True
             try:
-                with p.open("r", encoding="utf-8") as f:
+                with target.open("r", encoding="utf-8") as f:
                     # Data rows only (exclude header).
                     rows = max(sum(1 for _ in f) - 1, 0)
                     row_counts.append(rows)
+                    if rows <= 2:
+                        print(f"[WARN] Detected tiny seed CSV: {target.name}")
             except Exception:
                 pass
-        if row_counts and max(row_counts) <= 2:
-            print("[WARN] Detected tiny seed CSVs in secret_data/ (schema-validation only).")
-            print("[WARN] Replace with real data before full ML training for meaningful results.")
+
+    if not found_any:
+        print("[WARN] None of the required CSVs were found in secret_data/.")
+    elif row_counts and max(row_counts) <= 2:
+        print("[WARN] All detected CSVs appear to be tiny seed files. Replace with real data for meaningful results.")
 
 
 @dataclass(frozen=True)
@@ -69,38 +79,43 @@ def build_steps(include_redis_publish: bool) -> list[Step]:
     py = sys.executable
     steps = [
         Step(
+            id="bulk_sentiment_preprocessing",
+            description="Run high-quality RoBERTa sentiment analysis on raw WhatsApp messages → artifacts/sentiment/",
+            cmd=[py, "-m", "pipelines.preprocessing.bulk_sentiment_processor"],
+        ),
+        Step(
             id="feature_engineering",
             description="Build user-level engineered feature matrix from raw CSVs",
             cmd=[py, "-m", "pipelines.preprocessing.feature_engineering"],
         ),
         Step(
-            id="train_graphsage_user_embeddings",
-            description="Train GraphSAGE embeddings from users/sessions",
-            cmd=[py, "-m", "pipelines.training.train_graphsage_user_embeddings"],
-        ),
-        Step(
             id="build_gnn_nodes_from_flink",
-            description="Build GNN node tables from Flink outputs",
+            description="Build GNN node tables from Flink outputs → gnn_preprocessed/",
             cmd=[py, "-m", "pipelines.preprocessing.build_gnn_nodes_from_flink"],
         ),
         Step(
             id="train_user_behavior_gnn",
-            description="Train user behavior GNN and export GNN outputs + embeddings",
+            description="Train user behavior GNN and export scores + embeddings → gnn_outputs/",
             cmd=[py, "-m", "pipelines.training.train_user_behavior_gnn"],
         ),
         Step(
+            id="train_graphsage_user_embeddings",
+            description="Train GraphSAGE embeddings from users/sessions → artifacts/embeddings/",
+            cmd=[py, "-m", "pipelines.training.train_graphsage_user_embeddings"],
+        ),
+        Step(
             id="train_xgb_shap_sentiment",
-            description="Train XGBoost + SHAP explainability on embeddings",
+            description="Train XGBoost + SHAP explainability on embeddings → artifacts/xgb/",
             cmd=[py, "-m", "pipelines.training.train_xgb_shap_sentiment", "--allow_pseudo_fallback"],
         ),
         Step(
             id="build_user_personas",
-            description="Build user personas and SHAP explainability outputs",
+            description="Build user personas and SHAP explainability outputs → artifacts/persona/",
             cmd=[py, "-m", "pipelines.training.build_user_personas"],
         ),
         Step(
             id="train_whatsapp_gru_mood_swings",
-            description="Train GRU mood swing model",
+            description="Train GRU mood swing model from WhatsApp message sequences",
             cmd=[py, "-m", "pipelines.training.train_whatsapp_gru_mood_swings"],
         ),
     ]
@@ -171,11 +186,15 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--start-from", type=str, default=None, help="Start from this step id.")
     p.add_argument("--stop-after", type=str, default=None, help="Stop after this step id.")
+    p.add_argument("--fast", action="store_true", help="Enable fast mode (bypass heavy Transformers).")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.fast:
+        os.environ["MAYA_PIPELINE_FAST"] = "1"
+
     preflight_secret_data_check()
     redis_url = os.getenv("REDIS_URL", "").strip()
     auto_include = bool(redis_url) and not bool(args.no_redis_publish)
