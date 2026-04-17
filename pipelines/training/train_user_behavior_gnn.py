@@ -41,8 +41,8 @@ def parse_dt(col: pd.Series) -> pd.Series:
 
 def minmax(col: pd.Series) -> pd.Series:
     col = col.astype(float)
-    cmin = np.nanmin(col.values)
-    cmax = np.nanmax(col.values)
+    cmin = np.nanmin(col.values) if len(col) else 0.0
+    cmax = np.nanmax(col.values) if len(col) else 0.0
     if np.isclose(cmax - cmin, 0.0):
         return pd.Series(np.zeros(len(col), dtype=np.float32), index=col.index)
     out = (col - cmin) / (cmax - cmin)
@@ -331,6 +331,43 @@ def main() -> None:
     feedback = load_artifact_df("feedback_nodes", INPUT_DIR / "feedback_nodes.csv")
 
     user_df = build_user_table(users, sessions, messages, feedback)
+    if user_df.empty:
+        print("No user nodes found in preprocessed GNN inputs; writing empty GNN artifacts.")
+
+        scores_df = pd.DataFrame(
+            columns=[
+                "user_id",
+                "engagement_score",
+                "high_engagement_label",
+                "pred_high_engagement",
+                "pred_high_engagement_prob",
+            ]
+        )
+        global_rank = pd.DataFrame(columns=["feature", "importance"])
+        per_user_imp = pd.DataFrame(
+            columns=[
+                "user_id",
+                "rank",
+                "feature",
+                "importance",
+                "predicted_high_engagement_prob",
+            ]
+        )
+        emb_df = pd.DataFrame(columns=["user_id"])
+        emb_label_df = pd.DataFrame(
+            columns=["feature", "label", "anchor_feature", "anchor_feature_label", "abs_correlation"]
+        )
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        save_artifact_df(scores_df, "user_behaviour_scores", OUTPUT_DIR / "user_behaviour_scores.csv", index=False)
+        save_artifact_df(global_rank, "user_feature_importance_global", OUTPUT_DIR / "user_feature_importance_global.csv", index=False)
+        save_artifact_df(per_user_imp, "user_feature_importance_per_user", OUTPUT_DIR / "user_feature_importance_per_user.csv", index=False)
+        save_artifact_df(emb_df, "user_embeddings", OUTPUT_DIR / "user_embeddings.csv", index=False)
+        save_artifact_df(emb_label_df, "embedding_dimension_labels", OUTPUT_DIR / "embedding_dimension_labels.csv", index=False)
+        save_artifact_df(emb_df, "user_embeddings", EMBEDDINGS_ARTIFACT_DIR / "user_embeddings.csv", index=False)
+        save_artifact_df(emb_label_df, "embedding_dimension_labels", EMBEDDINGS_ARTIFACT_DIR / "embedding_dimension_labels.csv", index=False)
+        return
+
     user_features_df, user_feature_names = build_feature_matrix(user_df)
 
     sessions_basic = sessions[["session_id", "user_id", "duration", "billed_duration", "has_transcription", "has_summary"]].copy()

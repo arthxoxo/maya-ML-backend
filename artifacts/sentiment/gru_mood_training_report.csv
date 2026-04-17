@@ -1,2 +1,2 @@
-total_messages,eligible_users,sequence_length,hidden_size,epochs,batch_size,train_samples,val_samples,train_loss,val_mse,val_baseline_mse,val_mse_vs_baseline_pct,validation_split_strategy
-7663,43,8,32,25,64,5803,1471,0.038231476496618524,0.040183309465646744,0.06923124939203262,41.95784444376764,per_user_chronological_80_20
+total_messages,eligible_users,sequence_length,hidden_size,epochs,batch_size,train_samples,val_samples,train_loss,val_mse,val_baseline_mse,val_mse_vs_baseline_pct,validation_split_strategy,warning
+1,0,8,32,25,64,0,0,,,,,not_run,Skipping GRU mood swing training because no eligible user sequences were found. Seed/demo data usually needs lower message volume or more real sentiment history.

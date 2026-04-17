@@ -27,6 +27,23 @@ from config import EMBEDDINGS_ARTIFACT_DIR, SECRET_DATA_DIR
 from lib.online_store import save_artifact_df
 
 
+def resolve_input_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.exists():
+        return path
+
+    if path.name.startswith("maya_"):
+        alt_name = path.name.removeprefix("maya_")
+    else:
+        alt_name = f"maya_{path.name}"
+
+    alt_path = path.with_name(alt_name)
+    if alt_path.exists():
+        return alt_path
+
+    raise FileNotFoundError(f"Input CSV not found: {path} (also checked {alt_path.name})")
+
+
 def minmax(col: pd.Series) -> pd.Series:
     vals = pd.to_numeric(col, errors="coerce").astype(float)
     vmin = np.nanmin(vals.values) if len(vals) else 0.0
@@ -253,8 +270,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    users_path = Path(args.users)
-    sessions_path = Path(args.sessions)
+    users_path = resolve_input_path(args.users)
+    sessions_path = resolve_input_path(args.sessions)
     out_path = Path(args.out)
 
     users_raw = pd.read_csv(users_path)

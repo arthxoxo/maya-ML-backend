@@ -35,6 +35,33 @@ from app_config import EMBEDDINGS_ARTIFACT_DIR, PERSONA_ARTIFACT_DIR, SECRET_DAT
 from lib.online_store import load_artifact_df, save_artifact_df, save_artifact_file
 
 
+def resolve_input_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.exists():
+        return path
+
+    if path.name.startswith("maya_"):
+        alt_name = path.name.removeprefix("maya_")
+    else:
+        alt_name = f"maya_{path.name}"
+
+    alt_path = path.with_name(alt_name)
+    if alt_path.exists():
+        return alt_path
+
+    return path
+
+
+def write_placeholder_plot(plot_path: Path, message: str) -> None:
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(10, 3))
+    plt.axis("off")
+    plt.text(0.5, 0.5, message, ha="center", va="center", wrap=True)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=180)
+    plt.close()
+
+
 def parse_args() -> argparse.Namespace:
     base = PERSONA_ARTIFACT_DIR
     p = argparse.ArgumentParser(description="Build user personas from embeddings and explain with RandomForest")
@@ -195,6 +222,14 @@ def behavior_reason(feat: str, row: pd.Series, medians: dict[str, float]) -> str
 
 def main() -> None:
     args = parse_args()
+    users_path = resolve_input_path(args.users)
+    sessions_path = resolve_input_path(args.sessions)
+    sentiment_path = Path(args.sentiment)
+    out_table = Path(args.out_table)
+    out_profiles = Path(args.out_profiles)
+    out_importance = Path(args.out_importance)
+    out_shap_plot = Path(args.out_shap_plot)
+    out_user_shap = Path(args.out_user_shap)
 
     emb = load_artifact_df("user_embeddings", Path(args.embeddings))
     if "user_id" not in emb.columns:
@@ -202,18 +237,44 @@ def main() -> None:
     emb["user_id"] = pd.to_numeric(emb["user_id"], errors="coerce")
     emb = emb.dropna(subset=["user_id"]).copy()
     emb["user_id"] = emb["user_id"].astype(int)
+    if emb.empty:
+        warning = "Skipping persona generation because no user embeddings were found."
+        empty_table = pd.DataFrame(columns=["user_id", "persona_label", "top_reason_1", "top_reason_2", "top_reason_3"])
+        empty_profiles = pd.DataFrame(
+            columns=["persona_id", "users", "avg_sentiment", "account_age_days", "msg_count", "pos_ratio", "neg_ratio", "persona_label"]
+        )
+        empty_importance = pd.DataFrame(columns=["feature", "importance"])
+        empty_user_shap = pd.DataFrame(
+            columns=["user_id", "persona_id", "persona_label", "feature", "shap_value", "abs_shap"]
+        )
+        save_artifact_df(empty_table, "user_persona_table", out_table, index=False)
+        save_artifact_df(empty_profiles, "persona_profiles", out_profiles, index=False)
+        save_artifact_df(empty_importance, "persona_feature_importance", out_importance, index=False)
+        save_artifact_df(empty_user_shap, "persona_user_feature_contributions", out_user_shap, index=False)
+        write_placeholder_plot(out_shap_plot, warning)
+        save_artifact_file("persona_shap_summary", out_shap_plot)
+        print(f"[warning] {warning}")
+        print(f"Saved user persona table: {out_table}")
+        print(f"Saved persona profiles: {out_profiles}")
+        print(f"Saved persona feature importance: {out_importance}")
+        print(f"Saved persona SHAP summary plot: {out_shap_plot}")
+        print(f"Saved per-user local SHAP contributions: {out_user_shap}")
+        return
 
     emb_cols = [c for c in emb.columns if str(c).startswith("emb_")]
     if not emb_cols:
         raise ValueError("No embedding columns found (expected emb_*)")
     emb[emb_cols] = emb[emb_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
-    km = KMeans(n_clusters=args.k, random_state=args.seed, n_init=20)
+    effective_k = max(1, min(int(args.k), len(emb)))
+    if effective_k < int(args.k):
+        print(f"[warning] Reducing persona cluster count from {args.k} to {effective_k} due to limited embedding rows.")
+    km = KMeans(n_clusters=effective_k, random_state=args.seed, n_init=20)
     emb["persona_id"] = km.fit_predict(emb[emb_cols])
 
-    users_raw = load_artifact_df("users", Path(args.users))
+    users_raw = load_artifact_df("users", users_path)
     users = preprocess_users(users_raw)
-    sent = load_sentiment_user_level(Path(args.sentiment), Path(args.sessions))
+    sent = load_sentiment_user_level(sentiment_path, sessions_path)
 
     base = emb[["user_id", "persona_id"]].merge(users, on="user_id", how="left")
     base = base.merge(sent, on="user_id", how="left")
@@ -257,6 +318,37 @@ def main() -> None:
 
     base = base.merge(profiles[["persona_id", "persona_label"]], on="persona_id", how="left")
 
+    if len(base) < 5 or base["persona_id"].nunique() < 2:
+        warning = (
+            "Skipping persona SHAP modeling because the embedding set is too small for stable clustering/explanation. "
+            "Generated lightweight persona outputs only."
+        )
+        print(f"[warning] {warning}")
+
+        user_table = base[["user_id", "persona_label"]].copy()
+        user_table["top_reason_1"] = "insufficient data for persona attribution"
+        user_table["top_reason_2"] = "seed-scale dataset"
+        user_table["top_reason_3"] = "add more users for stable personas"
+
+        empty_importance = pd.DataFrame(columns=["feature", "importance"])
+        empty_user_shap = pd.DataFrame(
+            columns=["user_id", "persona_id", "persona_label", "feature", "shap_value", "abs_shap"]
+        )
+
+        save_artifact_df(user_table.sort_values("user_id"), "user_persona_table", out_table, index=False)
+        save_artifact_df(profiles, "persona_profiles", out_profiles, index=False)
+        save_artifact_df(empty_importance, "persona_feature_importance", out_importance, index=False)
+        save_artifact_df(empty_user_shap, "persona_user_feature_contributions", out_user_shap, index=False)
+        write_placeholder_plot(out_shap_plot, warning)
+        save_artifact_file("persona_shap_summary", out_shap_plot)
+
+        print(f"Saved user persona table: {out_table}")
+        print(f"Saved persona profiles: {out_profiles}")
+        print(f"Saved persona feature importance: {out_importance}")
+        print(f"Saved persona SHAP summary plot: {out_shap_plot}")
+        print(f"Saved per-user local SHAP contributions: {out_user_shap}")
+        return
+
     # RandomForest + SHAP explainability from behavior-focused features only.
     model_df = base.copy()
     num_cols = ["account_age_days", "contacts_backfilled", "avg_sentiment", "msg_count", "pos_ratio", "neg_ratio"]
@@ -294,12 +386,12 @@ def main() -> None:
 
     mean_abs_shap = shap_2d.mean(axis=0)
     fi = pd.DataFrame({"feature": X.columns, "importance": mean_abs_shap}).sort_values("importance", ascending=False)
-    save_artifact_df(fi, "persona_feature_importance", Path(args.out_importance), index=False)
+    save_artifact_df(fi, "persona_feature_importance", out_importance, index=False)
 
     plt.figure(figsize=(10, 6))
     shap.summary_plot(shap_2d, X, show=False, max_display=20)
     plt.tight_layout()
-    plt.savefig(Path(args.out_shap_plot), dpi=180)
+    plt.savefig(out_shap_plot, dpi=180)
     plt.close()
 
     medians = {c: float(model_df[c].median()) if c in model_df.columns else 0.0 for c in num_cols}
@@ -324,7 +416,7 @@ def main() -> None:
                 }
             )
     user_shap_df = pd.DataFrame(user_shap_rows)
-    save_artifact_df(user_shap_df, "persona_user_feature_contributions", Path(args.out_user_shap), index=False)
+    save_artifact_df(user_shap_df, "persona_user_feature_contributions", out_user_shap, index=False)
 
     reason_rows = []
     for i in range(len(model_df)):
@@ -349,15 +441,15 @@ def main() -> None:
         )
 
     user_table = pd.DataFrame(reason_rows).sort_values("user_id")
-    save_artifact_df(user_table, "user_persona_table", Path(args.out_table), index=False)
-    save_artifact_df(profiles, "persona_profiles", Path(args.out_profiles), index=False)
-    save_artifact_file("persona_shap_summary", Path(args.out_shap_plot))
+    save_artifact_df(user_table, "user_persona_table", out_table, index=False)
+    save_artifact_df(profiles, "persona_profiles", out_profiles, index=False)
+    save_artifact_file("persona_shap_summary", out_shap_plot)
 
-    print(f"Saved user persona table: {args.out_table}")
-    print(f"Saved persona profiles: {args.out_profiles}")
-    print(f"Saved persona feature importance: {args.out_importance}")
-    print(f"Saved persona SHAP summary plot: {args.out_shap_plot}")
-    print(f"Saved per-user local SHAP contributions: {args.out_user_shap}")
+    print(f"Saved user persona table: {out_table}")
+    print(f"Saved persona profiles: {out_profiles}")
+    print(f"Saved persona feature importance: {out_importance}")
+    print(f"Saved persona SHAP summary plot: {out_shap_plot}")
+    print(f"Saved per-user local SHAP contributions: {out_user_shap}")
 
 
 if __name__ == "__main__":

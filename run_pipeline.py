@@ -165,6 +165,9 @@ def run(steps: list[Step], dry_run: bool = False) -> int:
 
         res = subprocess.run(step.cmd, cwd=Path(__file__).resolve().parent)
         if res.returncode != 0:
+            if step.optional:
+                print(f"\n[WARN] Optional step '{step.id}' exited with code {res.returncode}; continuing.")
+                continue
             print(f"\n[FAIL] Step '{step.id}' exited with code {res.returncode}")
             return int(res.returncode)
         print(f"[OK] {step.id}")

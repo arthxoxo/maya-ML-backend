@@ -39,6 +39,125 @@ from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DAT
 from lib.online_store import load_artifact_df, save_artifact_df
 
 
+def resolve_input_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.exists():
+        return path
+
+    if path.name.startswith("maya_"):
+        alt_name = path.name.removeprefix("maya_")
+    else:
+        alt_name = f"maya_{path.name}"
+
+    alt_path = path.with_name(alt_name)
+    if alt_path.exists():
+        return alt_path
+
+    return path
+
+
+def write_placeholder_plot(plot_path: Path, message: str) -> None:
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(10, 3))
+    plt.axis("off")
+    plt.text(0.5, 0.5, message, ha="center", va="center", wrap=True)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=180)
+    plt.close()
+
+
+def write_empty_xgb_outputs(
+    args: argparse.Namespace,
+    emb: pd.DataFrame,
+    target_meta: dict,
+    warning: str,
+) -> None:
+    out_importance = Path(args.out_importance)
+    out_predictions = Path(args.out_predictions)
+    out_target_report = Path(args.out_target_report)
+    out_model = Path(args.out_model)
+    merged_path = out_importance.with_name("xgb_embedding_feature_importance_merged.csv")
+
+    empty_importance = pd.DataFrame(columns=["feature", "mean_abs_shap", "feature_label"])
+    empty_merged = pd.DataFrame(columns=["signal_name", "mean_abs_shap", "dim_count", "dimensions"])
+    empty_predictions = pd.DataFrame(
+        columns=[
+            "user_id",
+            "target",
+            "pred_label",
+            "pred_prob_positive",
+            "predicted_class",
+            "confidence",
+        ]
+    )
+    if "user_id" in emb.columns and not emb.empty:
+        empty_predictions = pd.DataFrame(
+            {
+                "user_id": pd.to_numeric(emb["user_id"], errors="coerce").dropna().astype(int),
+                "target": np.nan,
+                "pred_label": np.nan,
+                "pred_prob_positive": np.nan,
+                "predicted_class": "unavailable",
+                "confidence": np.nan,
+            }
+        )
+
+    report = {
+        "target_source": target_meta.get("target_source", ""),
+        "human_label_column": target_meta.get("human_label_column", ""),
+        "human_label_rows": target_meta.get("human_label_rows", 0),
+        "pseudo_label_rows": target_meta.get("pseudo_label_rows", 0),
+        "joined_users": 0,
+        "train_rows": 0,
+        "test_rows": 0,
+        "train_neg": 0,
+        "train_pos": 0,
+        "train_original_neg": 0,
+        "train_original_pos": 0,
+        "train_rebalance_applied": False,
+        "scale_pos_weight": np.nan,
+        "cv_folds_requested": int(args.cv_folds),
+        "cv_folds_used": 0,
+        "early_stopping_rounds": int(args.early_stopping_rounds),
+        "best_iteration": np.nan,
+        "cv_auc_mean": np.nan,
+        "cv_auc_std": np.nan,
+        "cv_best_iter_mean": np.nan,
+        "cv_best_iter_std": np.nan,
+        "accuracy": np.nan,
+        "auc": np.nan,
+        "pred_majority_share": np.nan,
+        "pred_prob_std": np.nan,
+        "model_collapse_risk": False,
+        "model_artifact": "",
+        "warning": warning,
+        "original_dims": 0,
+        "kept_dims": 0,
+        "dropped_low_variance": 0,
+        "dropped_high_corr": 0,
+        "winsor_q_low": float(args.winsor_q_low),
+        "winsor_q_high": float(args.winsor_q_high),
+        "variance_threshold": float(args.low_variance_threshold),
+        "corr_drop_threshold": float(args.corr_drop_threshold),
+    }
+
+    save_artifact_df(empty_importance, "xgb_embedding_feature_importance", out_importance, index=False)
+    save_artifact_df(empty_merged, "xgb_embedding_feature_importance_merged", merged_path, index=False)
+    save_artifact_df(empty_predictions, "xgb_user_predictions", out_predictions, index=False)
+    save_artifact_df(pd.DataFrame([report]), "xgb_target_report", out_target_report, index=False)
+    write_placeholder_plot(Path(args.out_plot), warning)
+
+    if out_model.exists():
+        out_model.unlink()
+
+    print(f"[warning] {warning}")
+    print(f"[saved] Placeholder SHAP summary plot: {args.out_plot}")
+    print(f"[saved] Empty feature importance CSV: {args.out_importance}")
+    print(f"[saved] Empty merged feature importance CSV: {merged_path}")
+    print(f"[saved] Target report CSV: {args.out_target_report}")
+    print(f"[saved] User predictions CSV: {args.out_predictions}")
+
+
 def parse_args() -> argparse.Namespace:
     base = XGB_ARTIFACT_DIR
     p = argparse.ArgumentParser(description="Train XGBoost + SHAP on user embeddings for sentiment prediction")
@@ -418,7 +537,7 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
 
 def resolve_targets(args: argparse.Namespace, sentiment: pd.DataFrame, sessions_path: Path) -> tuple[pd.DataFrame, dict]:
     source_mode = args.target_source
-    feedback_path = Path(args.feedback)
+    feedback_path = resolve_input_path(args.feedback)
 
     meta = {
         "target_source": "",
@@ -467,7 +586,7 @@ def main() -> None:
 
     emb_path = Path(args.embeddings)
     sent_path = pick_sentiment_file(args.sentiment)
-    sessions_path = Path(args.sessions)
+    sessions_path = resolve_input_path(args.sessions)
 
     emb = load_artifact_df("user_embeddings", emb_path)
     if "user_id" not in emb.columns:
@@ -485,11 +604,24 @@ def main() -> None:
     emb[emb_cols] = emb[emb_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).astype(np.float32)
 
     sentiment = pd.read_csv(sent_path)
-    user_targets, target_meta = resolve_targets(args, sentiment, sessions_path=sessions_path)
+    try:
+        user_targets, target_meta = resolve_targets(args, sentiment, sessions_path=sessions_path)
+    except ValueError as exc:
+        warning = (
+            "Skipping XGBoost sentiment training because no usable binary sentiment targets were found. "
+            f"Details: {exc}"
+        )
+        write_empty_xgb_outputs(args, emb, {"warning": warning}, warning)
+        return
 
     data = emb.merge(user_targets, on="user_id", how="inner")
     if data.empty:
-        raise ValueError("Join result is empty. Check user_id alignment between embeddings and sentiment data")
+        warning = (
+            "Skipping XGBoost sentiment training because embeddings and resolved sentiment targets did not overlap "
+            "on any user_id values."
+        )
+        write_empty_xgb_outputs(args, emb, target_meta, warning)
+        return
 
     X_raw = data[emb_cols].copy()
     X, prep_stats = preprocess_embedding_matrix(
@@ -503,6 +635,13 @@ def main() -> None:
     if not emb_cols_used:
         raise ValueError("All embedding dimensions were removed by preprocessing. Relax preprocessing thresholds.")
     y = data["target"].astype(int).copy()
+    if len(data) < 2 or y.nunique() < 2:
+        warning = (
+            "Skipping XGBoost sentiment training because the resolved target set is too small or contains only one "
+            "class after joining with embeddings."
+        )
+        write_empty_xgb_outputs(args, emb, target_meta, warning)
+        return
 
     # Handle small datasets gracefully for dev/test environments.
     # stratified split requires at least 2 samples per class in the test set.

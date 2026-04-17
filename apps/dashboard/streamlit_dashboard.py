@@ -628,6 +628,16 @@ def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return scores, global_imp, per_user_imp
 
 
+def gnn_output_file_status() -> tuple[bool, list[str]]:
+    expected = [
+        OUTPUT_DIR / "user_behaviour_scores.csv",
+        OUTPUT_DIR / "user_feature_importance_global.csv",
+        OUTPUT_DIR / "user_feature_importance_per_user.csv",
+    ]
+    existing = [p for p in expected if p.exists()]
+    return bool(existing), [p.name for p in existing]
+
+
 @st.cache_data(show_spinner=False)
 def load_user_directory() -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
@@ -3639,7 +3649,15 @@ def main() -> None:
     sentiment_df = load_sentiment_table()
 
     if scores.empty:
-        st.error("No GNN output files found in gnn_outputs.")
+        has_files, filenames = gnn_output_file_status()
+        if has_files:
+            st.warning(
+                "GNN output files were found in `gnn_outputs/`, but they currently contain no user rows. "
+                "This usually happens after a seed/demo-data pipeline run."
+            )
+            st.caption(f"Detected files: {', '.join(filenames)}")
+        else:
+            st.error("No GNN output files found in gnn_outputs.")
         st.stop()
 
     score_users = sorted(scores["user_id"].dropna().astype(int).tolist())

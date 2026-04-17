@@ -22,6 +22,72 @@ from app_config import BASE_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMEN
 from lib.online_store import load_artifact_df, save_artifact_df
 
 
+def resolve_input_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.exists():
+        return path
+
+    if path.name.startswith("maya_"):
+        alt_name = path.name.removeprefix("maya_")
+    else:
+        alt_name = f"maya_{path.name}"
+
+    alt_path = path.with_name(alt_name)
+    if alt_path.exists():
+        return alt_path
+
+    return path
+
+
+def write_empty_outputs(
+    out_summary: Path,
+    out_report: Path,
+    total_messages: int,
+    eligible_users: int,
+    args: argparse.Namespace,
+    warning: str,
+) -> None:
+    summary = pd.DataFrame(
+        columns=[
+            "user_id",
+            "messages",
+            "actual_volatility",
+            "predicted_volatility",
+            "prediction_mae",
+            "mood_swing_index",
+            "risk_flag",
+            "trend",
+            "recommendation",
+        ]
+    )
+    report = pd.DataFrame(
+        [
+            {
+                "total_messages": int(total_messages),
+                "eligible_users": int(eligible_users),
+                "sequence_length": int(args.sequence_length),
+                "hidden_size": int(args.hidden_size),
+                "epochs": int(args.epochs),
+                "batch_size": int(args.batch_size),
+                "train_samples": 0,
+                "val_samples": 0,
+                "train_loss": np.nan,
+                "val_mse": np.nan,
+                "val_baseline_mse": np.nan,
+                "val_mse_vs_baseline_pct": np.nan,
+                "validation_split_strategy": "not_run",
+                "warning": warning,
+            }
+        ]
+    )
+
+    save_artifact_df(summary, "gru_mood_swing_summary", out_summary, index=False)
+    save_artifact_df(report, "gru_mood_training_report", out_report, index=False)
+    print(f"[warning] {warning}")
+    print(f"[ok] Saved mood swing summary: {out_summary}")
+    print(f"[ok] Saved training report: {out_report}")
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train GRU mood swing model on WhatsApp/user sentiment timeline")
     p.add_argument("--sentiment", type=str, default=str(SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"))
@@ -357,7 +423,7 @@ def _summarize_users(
 def main() -> None:
     args = parse_args()
     sentiment_path = Path(args.sentiment)
-    sessions_path = Path(args.sessions)
+    sessions_path = resolve_input_path(args.sessions)
     out_summary = Path(args.out_summary)
     out_report = Path(args.out_report)
 
@@ -368,18 +434,42 @@ def main() -> None:
         min_user_msgs=int(args.min_user_msgs),
     )
     if len(x) == 0:
-        raise ValueError("No eligible user sequences found. Reduce --min_user_msgs or --sequence_length.")
+        warning = (
+            "Skipping GRU mood swing training because no eligible user sequences were found. "
+            "Seed/demo data usually needs lower message volume or more real sentiment history."
+        )
+        write_empty_outputs(
+            out_summary=out_summary,
+            out_report=out_report,
+            total_messages=int(len(df)),
+            eligible_users=0,
+            args=args,
+            warning=warning,
+        )
+        return
 
-    model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
-        x=x,
-        y=y,
-        meta=meta,
-        hidden_size=int(args.hidden_size),
-        epochs=int(args.epochs),
-        batch_size=int(args.batch_size),
-        learning_rate=float(args.learning_rate),
-        seed=int(args.seed),
-    )
+    try:
+        model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
+            x=x,
+            y=y,
+            meta=meta,
+            hidden_size=int(args.hidden_size),
+            epochs=int(args.epochs),
+            batch_size=int(args.batch_size),
+            learning_rate=float(args.learning_rate),
+            seed=int(args.seed),
+        )
+    except (ValueError, ImportError) as exc:
+        warning = f"Skipping GRU mood swing training because the dataset is too small or runtime requirements are missing. Details: {exc}"
+        write_empty_outputs(
+            out_summary=out_summary,
+            out_report=out_report,
+            total_messages=int(len(df)),
+            eligible_users=int(meta["eligible_users"].iloc[0]) if "eligible_users" in meta.columns and not meta.empty else 0,
+            args=args,
+            warning=warning,
+        )
+        return
     pred = _predict_sequences(model, x)
     summary = _summarize_users(df=df, meta=meta, x=x, y=y, pred=pred)
 
