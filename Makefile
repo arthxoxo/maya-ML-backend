@@ -2,8 +2,8 @@
 FLINK_PY  := ./flink_venv/bin/python
 MAIN_PY   := ./main_venv/bin/python
 
-# Tool paths (ensuring pyenv is reachable)
-PYENV := PATH=/opt/homebrew/bin:$$PATH pyenv
+# Tool paths
+PYENV ?= pyenv
 
 .PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data pipeline docker-pipeline
 
