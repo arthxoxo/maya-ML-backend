@@ -2874,7 +2874,7 @@ def main() -> None:
                 )
                 fig_dist.add_vline(x=0.0, line_dash="dot", line_color="#6F5A40")
                 style_chart(fig_dist, height=410, x_title="Sentiment Score", y_title="Messages")
-                st.plotly_chart(fig_dist, use_container_width=True)
+                st.plotly_chart(fig_dist, width="stretch")
 
             with gright:
                 temporal = wa_quality.dropna(subset=["created_at"]).copy()
@@ -2900,7 +2900,7 @@ def main() -> None:
                     style_chart(fig_heat, height=410, x_title="Hour of Day", y_title="Weekday")
                     fig_heat.update_xaxes(dtick=2)
                     fig_heat.update_coloraxes(colorbar_title="Neg Share")
-                    st.plotly_chart(fig_heat, use_container_width=True)
+                    st.plotly_chart(fig_heat, width="stretch")
 
             qleft, qright = st.columns(2)
             with qleft:
@@ -2924,7 +2924,7 @@ def main() -> None:
                     fig_conf.update_traces(mode="lines+markers")
                     style_chart(fig_conf, height=420, x_title="Date", y_title="Confidence")
                     fig_conf.update_yaxes(range=[0, 1], tickformat=".0%")
-                    st.plotly_chart(fig_conf, use_container_width=True)
+                    st.plotly_chart(fig_conf, width="stretch")
 
             with qright:
                 drift = wa_quality.dropna(subset=["created_at"]).copy()
@@ -2966,13 +2966,13 @@ def main() -> None:
                             bgcolor="rgba(255,251,243,0.96)",
                         ),
                     )
-                    st.plotly_chart(fig_drift, use_container_width=True)
+                    st.plotly_chart(fig_drift, width="stretch")
 
             uncertain_cols = [c for c in ["created_at", "user_id", "sentiment_score", "sentiment_label", "message"] if c in wa_quality.columns]
             uncertain_rows = wa_quality.sort_values("confidence_proxy", ascending=True).head(25).copy()
             if not uncertain_rows.empty and uncertain_cols:
                 st.caption("Lowest-confidence samples to inspect model quality and edge cases.")
-                st.dataframe(uncertain_rows[uncertain_cols], use_container_width=True, height=260)
+                st.dataframe(uncertain_rows[uncertain_cols], width="stretch", height=260)
 
             with st.expander("Sentiment Debug Table", expanded=False):
                 st.caption("Per-message trace: model score, heuristic score, rule/context adjustments, and final confidence.")
@@ -3019,14 +3019,14 @@ def main() -> None:
                     ]
                     if c in view.columns
                 ]
-                st.dataframe(view[view_cols].head(top_n), use_container_width=True, height=360)
+                st.dataframe(view[view_cols].head(top_n), width="stretch", height=360)
             return
 
         st.subheader("Mood Swing Model (GRU)")
         st.caption("Train a GRU on per-user sentiment sequences to estimate mood volatility over time.")
         action_col, report_col = st.columns([1, 2])
         with action_col:
-            if st.button("Train GRU Mood Swing Model", use_container_width=True):
+            if st.button("Train GRU Mood Swing Model", width="stretch"):
                 with st.spinner("Training GRU mood model on sentiment timeline..."):
                     ok, logs = run_gru_mood_training_action()
                 load_gru_mood_swing_summary.clear()
@@ -3065,7 +3065,7 @@ def main() -> None:
                 title="Top Users by GRU Mood Swing Index",
             )
             style_chart(fig_mood, height=460, x_title="Mood Swing Index", y_title="User")
-            st.plotly_chart(fig_mood, use_container_width=True)
+            st.plotly_chart(fig_mood, width="stretch")
 
             cols = [
                 c
@@ -3083,7 +3083,7 @@ def main() -> None:
             ]
             st.dataframe(
                 mood_view[cols].sort_values("mood_swing_index", ascending=False),
-                use_container_width=True,
+                width="stretch",
                 height=320,
             )
         else:
@@ -3115,7 +3115,7 @@ def main() -> None:
                 title=f"Average Sentiment Per User (Top {top_n} by Message Volume)",
             )
             style_chart(fig_avg, height=520, x_title="Average Sentiment", y_title="User")
-            st.plotly_chart(fig_avg, use_container_width=True)
+            st.plotly_chart(fig_avg, width="stretch")
 
         with right:
             sent_mix = wa.groupby(["user_id", "sentiment_label"], as_index=False).size()
@@ -3138,7 +3138,7 @@ def main() -> None:
             fig_mix.update_layout(barmode="stack")
             fig_mix.update_xaxes(tickformat=".0%")
             style_chart(fig_mix, height=520, x_title="Share of Messages", y_title="User")
-            st.plotly_chart(fig_mix, use_container_width=True)
+            st.plotly_chart(fig_mix, width="stretch")
 
         st.subheader("Per-User Sentiment Trend")
         users = sorted(wa["user_id"].unique().tolist())
@@ -3185,7 +3185,7 @@ def main() -> None:
                 fig_t.add_hline(y=0.1, line_dash="dash", line_color="#2E8B57")
                 fig_t.add_hline(y=-0.1, line_dash="dash", line_color="#B2413E")
                 style_chart(fig_t, height=420, x_title="Timestamp", y_title="Sentiment Score")
-                st.plotly_chart(fig_t, use_container_width=True)
+                st.plotly_chart(fig_t, width="stretch")
             else:
                 st.info("No timestamped messages for selected user.")
 
@@ -3212,7 +3212,7 @@ def main() -> None:
                 )
                 fig_day.add_hline(y=0.0, line_dash="dot", line_color="#6F5A40")
                 style_chart(fig_day, height=420, x_title="Day", y_title="Average Sentiment")
-                st.plotly_chart(fig_day, use_container_width=True)
+                st.plotly_chart(fig_day, width="stretch")
             else:
                 fig_h = px.histogram(
                     u,
@@ -3223,13 +3223,13 @@ def main() -> None:
                     title="Sentiment Score Distribution",
                 )
                 style_chart(fig_h, height=420, x_title="Sentiment Score", y_title="Message Count")
-                st.plotly_chart(fig_h, use_container_width=True)
+                st.plotly_chart(fig_h, width="stretch")
 
         st.dataframe(
             u[["created_at", "message", "sentiment_score", "sentiment_label"]]
             .sort_values("created_at", ascending=False)
             .head(40),
-            use_container_width=True,
+            width="stretch",
             height=360,
         )
         return
@@ -3259,14 +3259,14 @@ def main() -> None:
                 title="Intent Opportunity Ranking",
             )
             style_chart(fig_opp, height=560, x_title="Opportunity Score", y_title="Intent")
-            st.plotly_chart(fig_opp, use_container_width=True)
+            st.plotly_chart(fig_opp, width="stretch")
 
             roadmap_view = roadmap.copy()
             roadmap_view["share"] = roadmap_view["share"].map(lambda v: f"{v:.1%}")
             roadmap_view["neg_ratio"] = roadmap_view["neg_ratio"].map(lambda v: f"{v:.1%}")
             roadmap_view["trend_pct"] = roadmap_view["trend_pct"].map(lambda v: f"{v:+.0%}")
             roadmap_view["avg_polarity"] = roadmap_view["avg_polarity"].map(lambda v: f"{v:.3f}")
-            st.dataframe(roadmap_view, use_container_width=True, height=390)
+            st.dataframe(roadmap_view, width="stretch", height=390)
 
         pred_summary = load_xgb_user_predictions()
         if not pred_summary.empty:
@@ -3344,7 +3344,7 @@ def main() -> None:
                 ]
                 st.dataframe(
                     improve_view[show_cols].sort_values(["confidence", "pred_prob_positive"], ascending=[True, True]),
-                    use_container_width=True,
+                    width="stretch",
                     height=330,
                 )
         else:
@@ -3436,7 +3436,7 @@ def main() -> None:
                 )
                 style_chart(fig_pred, height=chart_h, x_title="Probability", y_title="User")
                 fig_pred.update_xaxes(range=[0, 1])
-                st.plotly_chart(fig_pred, use_container_width=True)
+                st.plotly_chart(fig_pred, width="stretch")
 
                 out_cols = [
                     c
@@ -3451,7 +3451,7 @@ def main() -> None:
                     ]
                     if c in pred_view.columns
                 ]
-                st.dataframe(pred_view[out_cols], use_container_width=True, height=520)
+                st.dataframe(pred_view[out_cols], width="stretch", height=520)
         return
 
     if page == "Persona Analysis":
@@ -3475,7 +3475,7 @@ def main() -> None:
             dist = persona_profiles[["persona_label", "users"]].copy().sort_values("users", ascending=False)
             fig_dist = px.bar(dist, x="persona_label", y="users", title="Users Per Persona")
             style_chart(fig_dist, height=420, x_title="Persona", y_title="Users", rotate_x=True)
-            st.plotly_chart(fig_dist, use_container_width=True)
+            st.plotly_chart(fig_dist, width="stretch")
 
         with right:
             st.subheader("Persona Sentiment Profile")
@@ -3490,10 +3490,10 @@ def main() -> None:
                     title="Average Sentiment By Persona",
                 )
                 style_chart(fig_sent, height=420, x_title="Persona", y_title="Avg Sentiment", rotate_x=True)
-                st.plotly_chart(fig_sent, use_container_width=True)
+                st.plotly_chart(fig_sent, width="stretch")
 
         st.subheader("Persona-Level Summaries")
-        st.dataframe(persona_profiles.sort_values("users", ascending=False), use_container_width=True, height=300)
+        st.dataframe(persona_profiles.sort_values("users", ascending=False), width="stretch", height=300)
 
         st.subheader("Global Feature Importance (Behavior Only)")
         if persona_importance.empty:
@@ -3510,7 +3510,7 @@ def main() -> None:
                 title="Global Persona Drivers (Geographic Noise Removed)",
             )
             style_chart(fig_fi, height=500, x_title="Importance", y_title="Feature")
-            st.plotly_chart(fig_fi, use_container_width=True)
+            st.plotly_chart(fig_fi, width="stretch")
 
         st.subheader("t-SNE of GraphSAGE Embeddings By Persona")
         tsne_df = build_tsne_persona(persona_table)
@@ -3528,11 +3528,11 @@ def main() -> None:
             )
             fig_tsne.update_traces(marker=dict(size=9, opacity=0.9, line=dict(width=0.6, color="#ffffff")))
             style_chart(fig_tsne, height=520, x_title="t-SNE 1", y_title="t-SNE 2")
-            st.plotly_chart(fig_tsne, use_container_width=True)
+            st.plotly_chart(fig_tsne, width="stretch")
 
         st.subheader("Persona SHAP Summary Plot")
         if PERSONA_SHAP_PLOT_PATH.exists():
-            st.image(str(PERSONA_SHAP_PLOT_PATH), use_container_width=True)
+            st.image(str(PERSONA_SHAP_PLOT_PATH), width="stretch")
         else:
             st.info("No persona SHAP plot found. Re-run build_user_personas.py to generate persona_shap_summary.png.")
 
@@ -3541,7 +3541,7 @@ def main() -> None:
         if reason_summary.empty:
             st.info("No persona reason summaries available.")
         else:
-            st.dataframe(reason_summary, use_container_width=True, height=240)
+            st.dataframe(reason_summary, width="stretch", height=240)
 
         st.subheader("User Persona Table")
         if not persona_user_directory.empty and "user_id" in persona_table.columns:
@@ -3584,7 +3584,7 @@ def main() -> None:
                 title="Users By Dissatisfaction Risk",
             )
             style_chart(fig_risk, height=360, x_title="Risk", y_title="Users")
-            st.plotly_chart(fig_risk, use_container_width=True)
+            st.plotly_chart(fig_risk, width="stretch")
         else:
             st.info("Dissatisfaction scores unavailable (sentiment_scores.csv not found or missing required columns).")
 
@@ -3599,7 +3599,7 @@ def main() -> None:
             view = view[view["persona_label"].astype(str).str.contains(sentiment_filter, case=False, na=False)]
         if activity_filter != "All":
             view = view[view["persona_label"].astype(str).str.contains(activity_filter, case=False, na=False)]
-        st.dataframe(view.sort_values("user_id"), use_container_width=True, height=420)
+        st.dataframe(view.sort_values("user_id"), width="stretch", height=420)
 
         st.subheader("Per-User Exact Feature Analysis")
         if persona_user_shap.empty:
@@ -3626,8 +3626,8 @@ def main() -> None:
                 title=f"Top Local Drivers For User {selected_uid}",
             )
             style_chart(fig_u, height=460, x_title="|SHAP| Contribution", y_title="Feature")
-            st.plotly_chart(fig_u, use_container_width=True)
-            st.dataframe(u_df.head(20), use_container_width=True, height=320)
+            st.plotly_chart(fig_u, width="stretch")
+            st.dataframe(u_df.head(20), width="stretch", height=320)
         return
 
     scores, global_imp, per_user_imp = load_outputs()
@@ -3683,7 +3683,7 @@ def main() -> None:
                     category_orders={"sentiment": ["positive", "neutral", "negative"]},
                 )
                 style_chart(fig_pie, height=420, kind="pie")
-                st.plotly_chart(fig_pie, use_container_width=True)
+                st.plotly_chart(fig_pie, width="stretch")
 
         with right:
             st.subheader("Global Sentiment Over Time")
@@ -3697,7 +3697,7 @@ def main() -> None:
                 fig_time.add_hline(y=0.1, line_dash="dash")
                 fig_time.add_hline(y=-0.1, line_dash="dash")
                 style_chart(fig_time, height=420, x_title="Date", y_title="Average Polarity")
-                st.plotly_chart(fig_time, use_container_width=True)
+                st.plotly_chart(fig_time, width="stretch")
 
         st.subheader("Global Most Requested Intents")
         if global_tasks.empty:
@@ -3711,8 +3711,8 @@ def main() -> None:
                 title="Global Intent Importance",
             )
             style_chart(fig_global_chat, height=460, x_title="Importance", y_title="Task")
-            st.plotly_chart(fig_global_chat, use_container_width=True)
-            st.dataframe(global_tasks[["task", "mentions", "avg_polarity", "sample_request"]].head(12), use_container_width=True, height=280)
+            st.plotly_chart(fig_global_chat, width="stretch")
+            st.dataframe(global_tasks[["task", "mentions", "avg_polarity", "sample_request"]].head(12), width="stretch", height=280)
 
         st.subheader("RAG Focus Opportunities (Global User Requests)")
         if global_feature_focus.empty:
@@ -3729,18 +3729,18 @@ def main() -> None:
                 hover_data=["share", "avg_polarity", "sample_requests"],
             )
             style_chart(fig_focus, height=440, x_title="Mentions", y_title="Capability Cluster")
-            st.plotly_chart(fig_focus, use_container_width=True)
+            st.plotly_chart(fig_focus, width="stretch")
             focus_table = global_feature_focus.copy()
             focus_table["share"] = focus_table["share"].map(lambda v: f"{v:.1%}")
             focus_table["avg_polarity"] = focus_table["avg_polarity"].map(lambda v: f"{v:.3f}")
-            st.dataframe(focus_table, use_container_width=True, height=300)
+            st.dataframe(focus_table, width="stretch", height=300)
             st.caption("Use high-mention clusters as top RAG coverage priorities, then inspect sample request phrases for intent granularity.")
 
         st.subheader("Representative Global Statements")
         if global_statements.empty:
             st.info("No global contextual statements found.")
         else:
-            st.dataframe(global_statements, use_container_width=True, height=320)
+            st.dataframe(global_statements, width="stretch", height=320)
 
         st.subheader("Global GNN Feature Importance")
         top_global = global_imp.head(12).sort_values("importance", ascending=True)
@@ -3752,7 +3752,7 @@ def main() -> None:
             title="Global GNN Model Features",
         )
         style_chart(fig_global, height=460, x_title="Importance", y_title="Feature")
-        st.plotly_chart(fig_global, use_container_width=True)
+        st.plotly_chart(fig_global, width="stretch")
 
     else:
         st.subheader("Per-User Controls")
@@ -3794,7 +3794,7 @@ def main() -> None:
 
         with control_right:
             st.markdown("<div style='height: 1.9rem;'></div>", unsafe_allow_html=True)
-            if st.button("Refresh", key="per_user_refresh_btn", use_container_width=True):
+            if st.button("Refresh", key="per_user_refresh_btn", width="stretch"):
                 refresh_by_user[selected_user] += 1
                 load_sentiment_table.clear()
                 load_user_message_events.clear()
@@ -3873,7 +3873,7 @@ def main() -> None:
                     paper_bgcolor=CHART_PAPER_BG,
                     margin=dict(l=44, r=32, t=40, b=30),
                 )
-                st.plotly_chart(fig_radar, use_container_width=True)
+                st.plotly_chart(fig_radar, width="stretch")
                 st.caption("Scores summarize the latest 5 user interactions.")
 
         timeline_col, hri_col = st.columns(2)
@@ -3917,7 +3917,7 @@ def main() -> None:
                     ),
                     legend=dict(orientation="h", y=1.08, x=0.01),
                 )
-                st.plotly_chart(fig_timeline, use_container_width=True)
+                st.plotly_chart(fig_timeline, width="stretch")
                 st.caption("Dual-axis view helps catch slow-response + negative-sentiment trends early.")
 
         with hri_col:
@@ -3934,7 +3934,7 @@ def main() -> None:
                     title="Modality Usage",
                 )
                 style_chart(fig_modality, height=390, x_title="Modality", y_title="Interactions", rotate_x=False)
-                st.plotly_chart(fig_modality, use_container_width=True)
+                st.plotly_chart(fig_modality, width="stretch")
             with h2:
                 fig_physical = px.bar(
                     physical_df,
@@ -3946,7 +3946,7 @@ def main() -> None:
                 )
                 fig_physical.update_yaxes(range=[0, 100])
                 style_chart(fig_physical, height=390, x_title="Signal", y_title="Score")
-                st.plotly_chart(fig_physical, use_container_width=True)
+                st.plotly_chart(fig_physical, width="stretch")
             if proxy_used:
                 st.caption("Physical engagement scores are proxy-derived because explicit distance/posture sensor columns are not available in current datasets.")
 
@@ -3970,7 +3970,7 @@ def main() -> None:
                     title="Per-user Feature Importance",
                 )
                 style_chart(fig_user, height=460, x_title="Importance", y_title="Feature")
-                st.plotly_chart(fig_user, use_container_width=True)
+                st.plotly_chart(fig_user, width="stretch")
 
         with right:
             st.subheader("Most Requested Intents By User")
@@ -3985,15 +3985,15 @@ def main() -> None:
                     title="User Intent Importance",
                 )
                 style_chart(fig_chat, height=460, x_title="Importance", y_title="Task")
-                st.plotly_chart(fig_chat, use_container_width=True)
-                st.dataframe(task_imp[["task", "mentions", "avg_polarity", "sample_request"]].head(10), use_container_width=True, height=260)
+                st.plotly_chart(fig_chat, width="stretch")
+                st.dataframe(task_imp[["task", "mentions", "avg_polarity", "sample_request"]].head(10), width="stretch", height=260)
 
         st.divider()
         st.subheader("Representative Statements In Context")
         if user_statements.empty:
             st.info("No contextual statements found for this user.")
         else:
-            st.dataframe(user_statements, use_container_width=True, height=320)
+            st.dataframe(user_statements, width="stretch", height=320)
 
         st.divider()
         st.subheader("Per-User Sentiment")
@@ -4016,7 +4016,7 @@ def main() -> None:
                     category_orders={"sentiment": ["positive", "neutral", "negative"]},
                 )
                 style_chart(fig_pie, height=400, kind="pie")
-                st.plotly_chart(fig_pie, use_container_width=True)
+                st.plotly_chart(fig_pie, width="stretch")
 
             with d2:
                 time_df = user_sent.dropna(subset=["created_at"]).sort_values("created_at")
@@ -4032,10 +4032,10 @@ def main() -> None:
                     fig_time.add_hline(y=0.1, line_dash="dash")
                     fig_time.add_hline(y=-0.1, line_dash="dash")
                     style_chart(fig_time, height=400, x_title="Timestamp", y_title="Sentiment Score")
-                    st.plotly_chart(fig_time, use_container_width=True)
+                    st.plotly_chart(fig_time, width="stretch")
 
             show_cols = ["created_at", "source", "message", "polarity", "subjectivity", "sentiment"]
-            st.dataframe(user_sent[show_cols].sort_values("created_at", ascending=False).head(25), use_container_width=True, height=360)
+            st.dataframe(user_sent[show_cols].sort_values("created_at", ascending=False).head(25), width="stretch", height=360)
 
 
 if __name__ == "__main__":

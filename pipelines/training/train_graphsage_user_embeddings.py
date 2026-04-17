@@ -24,7 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from config import EMBEDDINGS_ARTIFACT_DIR, SECRET_DATA_DIR
-from online_store import save_artifact_df
+from lib.online_store import save_artifact_df
 
 
 def minmax(col: pd.Series) -> pd.Series:

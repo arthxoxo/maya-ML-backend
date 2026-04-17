@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import BASE_DIR, FLINK_ENGINEERED_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR
-from online_store import save_artifact_df
+from lib.online_store import save_artifact_df
 
 
 OUT_DIR = GNN_PREPROCESSED_DIR

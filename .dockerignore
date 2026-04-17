@@ -1,0 +1,10 @@
+main_venv
+flink_venv
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+.vscode
+*.log
+data

@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from app_config import BASE_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
-from online_store import load_artifact_df, save_artifact_df
+from lib.online_store import load_artifact_df, save_artifact_df
 
 
 def parse_args() -> argparse.Namespace:

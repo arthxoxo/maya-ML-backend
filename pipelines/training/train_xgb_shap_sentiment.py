@@ -36,7 +36,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from xgboost import XGBClassifier
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
-from online_store import load_artifact_df, save_artifact_df
+from lib.online_store import load_artifact_df, save_artifact_df
 
 
 def parse_args() -> argparse.Namespace:

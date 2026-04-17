@@ -1,0 +1,20 @@
+services:
+  maya-app:
+    build: .
+    container_name: maya-platform
+    ports:
+      - "8501:8501"
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379
+      - KAFKA_BROKER=host.docker.internal:9092
+      - MAYA_REDIS_PREFIX=maya:dashboard
+    volumes:
+      - .:/app
+      - /app/main_venv/
+      - /app/flink_venv/
+      - ./secret_data:/app/secret_data
+      - ./artifacts:/app/artifacts
+      - ./flink_engineered:/app/flink_engineered
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

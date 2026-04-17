@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_OUTPUT_DIR, GNN_PREPROCESSED_DIR
-from online_store import load_artifact_df, save_artifact_df
+from lib.online_store import load_artifact_df, save_artifact_df
 
 
 INPUT_DIR = GNN_PREPROCESSED_DIR

@@ -5,7 +5,9 @@ MAIN_PY   := ./main_venv/bin/python
 # Tool paths (ensuring pyenv is reachable)
 PYENV := PATH=/opt/homebrew/bin:$$PATH pyenv
 
-.PHONY: setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data
+.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data
+
+setup: setup-all
 
 setup-all: setup-flink-venv setup-main-venv
 	@echo "✓ Both environments ready"

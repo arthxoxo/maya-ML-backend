@@ -32,7 +32,7 @@ from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, PERSONA_ARTIFACT_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
-from online_store import load_artifact_df, save_artifact_df, save_artifact_file
+from lib.online_store import load_artifact_df, save_artifact_df, save_artifact_file
 
 
 def parse_args() -> argparse.Namespace:
