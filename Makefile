@@ -1,6 +1,9 @@
 # Environment paths
-FLINK_PY  := ./flink_venv/bin/python
-MAIN_PY   := ./main_venv/bin/python
+# Prefer Windows venv layout when present, otherwise fall back to POSIX.
+FLINK_PY  := $(if $(wildcard flink_venv/Scripts/python.exe),./flink_venv/Scripts/python.exe,./flink_venv/bin/python)
+MAIN_PY   := $(if $(wildcard main_venv/Scripts/python.exe),./main_venv/Scripts/python.exe,./main_venv/bin/python)
+FLINK_PIP := $(if $(wildcard flink_venv/Scripts/pip.exe),./flink_venv/Scripts/pip.exe,./flink_venv/bin/pip)
+MAIN_PIP  := $(if $(wildcard main_venv/Scripts/pip.exe),./main_venv/Scripts/pip.exe,./main_venv/bin/pip)
 
 # Tool paths
 PYENV ?= pyenv
@@ -15,14 +18,14 @@ setup-all: setup-flink-venv setup-main-venv
 setup-flink-venv:
 	$(PYENV) install -s 3.10.14
 	PYENV_VERSION=3.10.14 $(PYENV) exec python -m venv flink_venv
-	./flink_venv/bin/pip install --upgrade "pip<24.1" "setuptools<70" wheel
-	./flink_venv/bin/pip install apache-flink>=1.19.0 confluent-kafka -c build-constraints.txt
+	$(FLINK_PIP) install --upgrade "pip<24.1" "setuptools<70" wheel
+	$(FLINK_PIP) install apache-flink>=1.19.0 confluent-kafka -c build-constraints.txt
 
 setup-main-venv:
 	$(PYENV) install -s 3.11.9
 	PYENV_VERSION=3.11.9 $(PYENV) exec python -m venv main_venv
-	./main_venv/bin/pip install --upgrade pip
-	./main_venv/bin/pip install -r requirements.txt -c build-constraints.txt
+	$(MAIN_PIP) install --upgrade pip
+	$(MAIN_PIP) install -r requirements.txt -c build-constraints.txt
 
 start-dashboard:
 	PYTHONPATH=. $(MAIN_PY) -m streamlit run apps/dashboard/streamlit_dashboard.py
