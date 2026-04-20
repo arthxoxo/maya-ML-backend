@@ -704,9 +704,9 @@ def load_user_profiles() -> pd.DataFrame:
 
 
 def polarity_label(p: float) -> str:
-    if p > 0.08:
+    if p > 0.05:
         return "positive"
-    if p < -0.06:
+    if p < -0.04:
         return "negative"
     return "neutral"
 
@@ -767,7 +767,7 @@ def repair_flat_sentiment_scores(
 
     flat_ratio = float((score.abs() <= 1e-9).mean())
     neutral_ratio = float((label == "neutral").mean()) if len(label) else 1.0
-    if flat_ratio < 0.80 and neutral_ratio < 0.90:
+    if flat_ratio < 0.80 and neutral_ratio < 0.70:
         return out
 
     heur = out[text_col].fillna("").astype(str).apply(lambda t: float(heuristic_sentiment_fallback(t)[0]))
@@ -2796,6 +2796,17 @@ def main() -> None:
         ],
     )
     st.sidebar.divider()
+    
+    st.sidebar.subheader("Sentiment Granularity")
+    neutral_target = st.sidebar.slider(
+        "Target Neutral Share",
+        min_value=0.20,
+        max_value=0.85,
+        value=0.60,
+        step=0.05,
+        help="Lower values force the system to pick a side (Pos/Neg) even for weaker sentiments."
+    )
+    
     if st.sidebar.button("🔄 Refresh Data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
@@ -3647,6 +3658,21 @@ def main() -> None:
     scores, global_imp, per_user_imp = load_outputs()
     user_directory = load_user_directory()
     sentiment_df = load_sentiment_table()
+    
+    if not sentiment_df.empty:
+        # Re-calibrate sentiment labels based on user's granularity preference
+        if "polarity" in sentiment_df.columns:
+            new_labels, _ = calibrate_sentiment_labels(
+                sentiment_df["polarity"], 
+                target_neutral_share=neutral_target
+            )
+            sentiment_df["sentiment"] = new_labels
+        elif "sentiment_score" in sentiment_df.columns:
+            new_labels, _ = calibrate_sentiment_labels(
+                sentiment_df["sentiment_score"], 
+                target_neutral_share=neutral_target
+            )
+            sentiment_df["sentiment"] = new_labels
 
     if scores.empty:
         has_files, filenames = gnn_output_file_status()

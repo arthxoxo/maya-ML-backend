@@ -62,9 +62,10 @@ def main():
         print("[Fast Mode] Using heuristic sentiment (bypassing Transformer)...")
         import re
         _NEG = {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
-                "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"}
+                "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
+                "not", "never", "no", "poor", "difficult", "hard", "bug", "crash"}
         _POS = {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
-                "resolved", "perfect", "excellent", "fast", "smooth"}
+                "resolved", "perfect", "excellent", "fast", "smooth", "best", "cool", "super"}
 
         def _heuristic(text: str):
             s = str(text or "").strip().lower()
@@ -75,8 +76,8 @@ def main():
                 return 0.0, 0.5, "neutral"
             pos = sum(1 for t in tokens if t in _POS)
             neg = sum(1 for t in tokens if t in _NEG)
-            raw = float(max(min(((pos - neg) / max(len(tokens), 6)) * 2.0, 1.0), -1.0))
-            lbl = "positive" if raw > 0.1 else ("negative" if raw < -0.1 else "neutral")
+            raw = float(max(min(((pos - neg) / max(len(tokens), 5)) * 2.5, 1.0), -1.0))
+            lbl = "positive" if raw > 0.05 else ("negative" if raw < -0.04 else "neutral")
             return round(raw, 4), round(abs(raw), 4), lbl
 
         results_list = [_heuristic(t) for t in df["message"].fillna("").astype(str).tolist()]
@@ -87,13 +88,15 @@ def main():
         import torch
         from transformers import pipeline
 
-        # Hardware acceleration
-        device = "cpu"
-        if torch.backends.mps.is_available():
-            device = "mps"
-        elif torch.cuda.is_available():
-            device = 0
-        print(f"Using device: {device}")
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from lib.device_utils import resolve_device
+
+        # Hardware acceleration — MPS (Apple Silicon) > CUDA (Nvidia) > CPU
+        _dev = resolve_device()
+        # HuggingFace pipeline accepts str or int; str form works for all backends
+        device = str(_dev)
 
         print("Initializing CardiffNLP RoBERTa model...")
         pipe = pipeline(

@@ -36,6 +36,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from xgboost import XGBClassifier
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
+from lib.device_utils import resolve_xgb_device
 from lib.online_store import load_artifact_df, save_artifact_df
 
 
@@ -584,6 +585,9 @@ def resolve_targets(args: argparse.Namespace, sentiment: pd.DataFrame, sessions_
 def main() -> None:
     args = parse_args()
 
+    # Resolve hardware-accelerated device once for this run
+    xgb_device = resolve_xgb_device()
+
     emb_path = Path(args.embeddings)
     sent_path = pick_sentiment_file(args.sentiment)
     sessions_path = resolve_input_path(args.sessions)
@@ -705,6 +709,7 @@ def main() -> None:
         early_stopping_rounds=int(args.early_stopping_rounds),
         scale_pos_weight=scale_pos_weight,
         random_state=args.seed,
+        device=xgb_device,
     )
     model_params_no_es = {k: v for k, v in model_params.items() if k != "early_stopping_rounds"}
 

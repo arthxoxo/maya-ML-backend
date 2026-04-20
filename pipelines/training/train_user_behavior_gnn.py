@@ -28,6 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_OUTPUT_DIR, GNN_PREPROCESSED_DIR
+from lib.device_utils import resolve_device
 from lib.online_store import load_artifact_df, save_artifact_df
 
 
@@ -405,17 +406,19 @@ def main() -> None:
     # Pseudo target: high-engagement user (top quartile).
     y_series = (user_df["engagement_score"] >= user_df["engagement_score"].quantile(0.75)).astype(np.float32)
 
-    user_x_t = torch.tensor(user_features_df.values, dtype=torch.float32)
-    session_x_t = torch.tensor(sessions_x.values, dtype=torch.float32)
-    message_x_t = torch.tensor(messages_x.values, dtype=torch.float32)
-    feedback_x_t = torch.tensor(feedback_x.values, dtype=torch.float32)
-    y_t = torch.tensor(y_series.values, dtype=torch.float32)
+    device = resolve_device()
 
-    session_to_user_t = torch.tensor(session_to_user.values, dtype=torch.long)
-    message_to_user_t = torch.tensor(message_to_user.values, dtype=torch.long)
-    feedback_to_user_t = torch.tensor(feedback_to_user.values, dtype=torch.long)
+    user_x_t = torch.tensor(user_features_df.values, dtype=torch.float32).to(device)
+    session_x_t = torch.tensor(sessions_x.values, dtype=torch.float32).to(device)
+    message_x_t = torch.tensor(messages_x.values, dtype=torch.float32).to(device)
+    feedback_x_t = torch.tensor(feedback_x.values, dtype=torch.float32).to(device)
+    y_t = torch.tensor(y_series.values, dtype=torch.float32).to(device)
 
-    train_mask = build_train_mask(len(user_df), frac=0.8)
+    session_to_user_t = torch.tensor(session_to_user.values, dtype=torch.long).to(device)
+    message_to_user_t = torch.tensor(message_to_user.values, dtype=torch.long).to(device)
+    feedback_to_user_t = torch.tensor(feedback_to_user.values, dtype=torch.long).to(device)
+
+    train_mask = build_train_mask(len(user_df), frac=0.8).to(device)
 
     model = UserBehaviorGNN(
         user_in=user_x_t.shape[1],
@@ -423,7 +426,7 @@ def main() -> None:
         message_in=message_x_t.shape[1],
         feedback_in=feedback_x_t.shape[1],
         hidden=64,
-    )
+    ).to(device)
 
     train_model(
         model,
@@ -454,6 +457,7 @@ def main() -> None:
         pred = (probs > 0.5).astype(int)
 
     # Gradient-based per-user feature attribution on user feature inputs.
+    # Note: MPS grad is supported; we keep the tensor on device and only move to CPU for numpy.
     user_x_grad = user_x_t.clone().detach().requires_grad_(True)
     logits_grad, _ = model(
         user_x_grad,

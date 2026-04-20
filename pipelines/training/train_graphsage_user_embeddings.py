@@ -24,6 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from config import EMBEDDINGS_ARTIFACT_DIR, SECRET_DATA_DIR
+from lib.device_utils import resolve_device
 from lib.online_store import save_artifact_df
 
 
@@ -304,12 +305,19 @@ def main() -> None:
     edge_u = torch.tensor(edge_df["u"].values, dtype=torch.long)
     edge_s = torch.tensor(edge_df["s"].values, dtype=torch.long)
 
+    device = resolve_device()
+
     model = BipartiteGraphSAGE(
         user_in=user_x.shape[1],
         session_in=session_x.shape[1],
         hidden=args.hidden,
         out_dim=args.dim,
-    )
+    ).to(device)
+
+    user_x = user_x.to(device)
+    session_x = session_x.to(device)
+    edge_u = edge_u.to(device)
+    edge_s = edge_s.to(device)
 
     train_link_prediction(
         model,

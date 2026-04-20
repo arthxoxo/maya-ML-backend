@@ -209,11 +209,17 @@ def _train_gru(
         import torch
         import torch.nn as nn
         from torch.utils.data import DataLoader, TensorDataset
+
+        import sys
+        from pathlib import Path as _Path
+        sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+        from lib.device_utils import resolve_device
     except Exception as exc:
         raise ImportError("PyTorch is required to train GRU mood model. Install torch to continue.") from exc
 
     _set_seed(seed)
     torch.manual_seed(seed)
+    device = resolve_device()
 
     if len(x) < 10:
         raise ValueError("Not enough sequence samples to train GRU model.")
@@ -265,8 +271,8 @@ def _train_gru(
 
     x_train = torch.tensor(x[train_idx], dtype=torch.float32).unsqueeze(-1)
     y_train = torch.tensor(y[train_idx], dtype=torch.float32).unsqueeze(-1)
-    x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1)
-    y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1)
+    x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
+    y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
 
     # Naive baseline: predict next sentiment as last sentiment from the input window.
     val_baseline_pred = x[val_idx][:, -1]
@@ -285,7 +291,7 @@ def _train_gru(
             pred = self.head(out[:, -1, :])
             return torch.tanh(pred)
 
-    model = MoodGRU(hidden=max(8, int(hidden_size)))
+    model = MoodGRU(hidden=max(8, int(hidden_size))).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(learning_rate))
     criterion = nn.MSELoss()
 
@@ -294,6 +300,7 @@ def _train_gru(
         model.train()
         batch_losses: list[float] = []
         for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
             pred = model(xb)
             loss = criterion(pred, yb)
@@ -313,8 +320,10 @@ def _train_gru(
 def _predict_sequences(model, x: np.ndarray) -> np.ndarray:
     import torch
 
+    # Move input to the same device the model lives on
+    _device = next(model.parameters()).device
     with torch.no_grad():
-        pred = model(torch.tensor(x, dtype=torch.float32).unsqueeze(-1))
+        pred = model(torch.tensor(x, dtype=torch.float32).unsqueeze(-1).to(_device))
     return pred.detach().cpu().numpy().reshape(-1)
 
 

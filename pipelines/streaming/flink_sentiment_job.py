@@ -88,13 +88,18 @@ def _get_hf_sentiment_pipe():
         return None
 
     try:
+        import sys
+        from pathlib import Path as _Path
+        sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+        from lib.device_utils import resolve_device
         from transformers import pipeline
 
+        _dev = resolve_device()
         _HF_SENTIMENT_PIPE = pipeline(
             "sentiment-analysis",
             model="cardiffnlp/twitter-roberta-base-sentiment-latest",
             tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
-            device=-1,
+            device=str(_dev),
         )
     except Exception:
         _HF_SENTIMENT_UNAVAILABLE = True
