@@ -99,25 +99,50 @@ HF_IRONY_MODEL = "cardiffnlp/twitter-roberta-base-irony"
 REDIS_KEY_PREFIX = os.getenv("MAYA_REDIS_PREFIX", "maya:dashboard")
 
 SENTIMENT_COLORS = {
-    "positive": "#1F7A5A",
-    "neutral": "#5F6B7A",
-    "negative": "#B2413E",
+    "positive": "#2ECC71",  # Emerald
+    "neutral": "#94A3B8",   # Slate
+    "negative": "#E74C3C",  # Ruby
 }
 
 SENTIMENT_DIVERGING_SCALE = [
-    [0.00, "#9F2D2D"],
-    [0.35, "#D57452"],
-    [0.50, "#F6F3EE"],
-    [0.65, "#79AF8E"],
-    [1.00, "#1F7A5A"],
+    [0.00, "#E74C3C"],
+    [0.35, "#F39C12"],
+    [0.50, "#1E293B"],
+    [0.65, "#3498DB"],
+    [1.00, "#2ECC71"],
 ]
 
-ACCENT_PRIMARY = "#8D6A3B"
-CHART_PAPER_BG = "#F8F1E4"
-CHART_PLOT_BG = "#FFFDF8"
-GRID_COLOR = "#E5D8C0"
-PERSONA_COLORS = ["#8D6A3B", "#1E3A5F", "#A46B4D", "#556B5D", "#6B4C3E", "#35606E", "#A1834C"]
-RISK_COLORS = {"High": "#B2413E", "Medium": "#D29A2E", "Low": "#2E8B57"}
+ACCENT_PRIMARY = "#D4AF37"  # Metallic Gold
+ACCENT_SECONDARY = "#BD9354" # Champagne
+CHART_PAPER_BG = "rgba(0,0,0,0)"
+CHART_PLOT_BG = "rgba(0,0,0,0)"
+GRID_COLOR = "rgba(255,255,255,0.05)"
+PERSONA_COLORS = ["#D4AF37", "#2C3E50", "#7F8C8D", "#16A085", "#2980B9", "#8E44AD", "#F39C12"]
+RISK_COLORS = {"High": "#E74C3C", "Medium": "#F39C12", "Low": "#2ECC71"}
+
+# Global Plotly Luxury Dark Theme
+pio.templates["maya_luxury"] = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#F8FAFC", family="Inter, sans-serif"),
+        xaxis=dict(
+            gridcolor="rgba(255,255,255,0.05)", 
+            zerolinecolor="rgba(255,255,255,0.1)",
+            title_font=dict(color="#F1F5F9", size=14),
+            tickfont=dict(color="#CBD5E1", size=12)
+        ),
+        yaxis=dict(
+            gridcolor="rgba(255,255,255,0.05)", 
+            zerolinecolor="rgba(255,255,255,0.1)",
+            title_font=dict(color="#F1F5F9", size=14),
+            tickfont=dict(color="#CBD5E1", size=12)
+        ),
+        hoverlabel=dict(bgcolor="#1C1F26", font_size=13, font_family="Inter", font_color="#F8FAFC"),
+        colorway=PERSONA_COLORS,
+    )
+)
+pio.templates.default = "plotly_dark+maya_luxury"
 GEO_NOISE_PATTERN = r"latitude|longitude|timezone|country|city|state|zip|postal|region|geo|location"
 
 STOPWORDS = {
@@ -301,119 +326,152 @@ def heuristic_sentiment_fallback(text: str) -> tuple[float, float]:
 
 
 def style_app() -> None:
-    st.set_page_config(page_title="Maya GNN Insights", page_icon="M", layout="wide")
+    st.set_page_config(page_title="Maya Behavioral Intelligence", page_icon="🔱", layout="wide")
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600&display=swap');
+        
+        /* Main Container */
         [data-testid="stAppViewContainer"] {
-            background:
-                radial-gradient(circle at 8% 12%, rgba(141,106,59,0.16), transparent 36%),
-                radial-gradient(circle at 92% 84%, rgba(30,58,95,0.12), transparent 34%),
-                linear-gradient(180deg, #f9f4ea 0%, #f4ece0 100%);
+            background: radial-gradient(circle at 2% 2%, #1e293b 0%, #0f172a 100%);
+            color: #f8fafc;
         }
-        [data-testid="stHeader"] {
-            background: rgba(249,244,234,0.70);
-            backdrop-filter: blur(6px);
-        }
+
+        /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #1f304a 0%, #243b5a 42%, #2f4566 100%);
-            border-right: 1px solid rgba(255,255,255,0.12);
+            background-color: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid rgba(212, 175, 55, 0.15);
         }
-        [data-testid="stSidebar"] * {
-            color: #f6efe3 !important;
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+            color: #e2e8f0;
         }
-        [data-testid="stSidebar"] .stSelectbox label,
-        [data-testid="stSidebar"] .stRadio label {
-            color: #f2e5cb !important;
-            font-family: "Manrope", "Segoe UI", sans-serif;
-            font-weight: 600;
+
+        /* Metric Cards Overwrite */
+        [data-testid="metric-container"] {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            border-radius: 12px;
+            padding: 1.2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
         }
-        .block-container {
-            font-family: "Manrope", "Segoe UI", sans-serif;
-            color: #1f2125;
-            padding-top: 1.3rem;
-            padding-bottom: 2.5rem;
-        }
-        h1, h2, h3 {
-            font-family: "Cormorant Garamond", "Times New Roman", serif;
-            letter-spacing: 0.25px;
-            color: #1c2737;
-        }
-        h1 {
-            font-weight: 700;
-            font-size: 3.0rem;
-        }
-        h2, h3 {
-            font-weight: 600;
-        }
-        .stPlotlyChart {
-            border: 1px solid #dccfb5;
-            border-radius: 16px;
-            padding: 0.55rem 0.55rem 0.15rem 0.55rem;
-            background: linear-gradient(180deg, #fffdf9 0%, #f7efe1 100%);
-            box-shadow: 0 10px 28px rgba(35, 32, 28, 0.09);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .stPlotlyChart:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 14px 34px rgba(35, 32, 28, 0.13);
-        }
-        [data-testid="stMetric"] {
-            background: linear-gradient(160deg, rgba(255,255,255,0.88), rgba(247,238,224,0.95));
-            border: 1px solid #ddcfb3;
-            border-radius: 14px;
-            padding: 0.8rem 0.9rem;
-            box-shadow: 0 6px 20px rgba(52, 45, 33, 0.09);
+        [data-testid="metric-container"]:hover {
+            border-color: rgba(212, 175, 55, 0.5);
+            box-shadow: 0 8px 30px rgba(212, 175, 55, 0.15);
+            transform: translateY(-2px);
         }
         [data-testid="stMetricLabel"] {
-            font-family: "Manrope", "Segoe UI", sans-serif;
-            color: #5d4d37;
-            font-weight: 600;
+            color: #94a3b8 !important;
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            font-size: 0.75rem !important;
         }
         [data-testid="stMetricValue"] {
-            font-family: "Cormorant Garamond", "Times New Roman", serif;
-            color: #1f2733;
-            font-size: 2rem;
+            color: #f1f5f9 !important;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
         }
+
+        /* Global Typography */
+        .block-container {
+            padding-top: 2rem;
+            font-family: 'Inter', sans-serif;
+        }
+        h1, h2, h3 {
+            font-family: 'Outfit', sans-serif;
+            color: #f8fafc !important;
+            font-weight: 700 !important;
+        }
+        h1 { font-size: 3rem !important; letter-spacing: -0.5px; }
+
+        /* Plotly Containers */
+        .stPlotlyChart {
+            background: rgba(30, 41, 59, 0.4);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Tables & Dataframes */
         .stDataFrame {
-            border: 1px solid #decfae;
-            border-radius: 14px;
-            box-shadow: 0 6px 18px rgba(52,45,33,0.09);
-            overflow: hidden;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(212, 175, 55, 0.1);
+            border-radius: 12px;
         }
+
+        /* Buttons (Gold Finish) */
         .stButton > button {
-            background: linear-gradient(135deg, #8d6a3b, #b58d55);
-            color: #fffaf0;
-            border: 1px solid #7d5e35;
-            border-radius: 10px;
+            background: linear-gradient(135deg, #d4af37 0%, #b58d55 100%);
+            color: #0f172a !important;
+            border: none;
+            padding: 0.6rem 2rem;
+            border-radius: 8px;
             font-weight: 600;
-            box-shadow: 0 6px 14px rgba(83, 58, 24, 0.25);
+            font-family: 'Outfit', sans-serif;
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+            transition: all 0.2s ease;
         }
         .stButton > button:hover {
-            filter: brightness(1.03);
+            box-shadow: 0 6px 20px rgba(212, 175, 55, 0.5);
+            transform: scale(1.02);
         }
+
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    maya_template = go.layout.Template(
-        layout=go.Layout(
-            font=dict(family="Manrope, Segoe UI, sans-serif", size=14, color="#1e2229"),
-            title=dict(font=dict(size=22, color="#1c2737")),
-            paper_bgcolor=CHART_PAPER_BG,
-            plot_bgcolor=CHART_PLOT_BG,
-            legend=dict(bgcolor="rgba(255,250,240,0.97)", bordercolor="#d8c8aa", borderwidth=1),
-            margin=dict(l=64, r=24, t=66, b=58),
-            xaxis=dict(showgrid=True, gridcolor=GRID_COLOR, zeroline=False),
-            yaxis=dict(showgrid=True, gridcolor=GRID_COLOR, zeroline=False),
-        )
+
+def executive_card(label: str, content: str = ""):
+    """Renders a premium gold-bordered card for executive summaries."""
+    st.markdown(
+        f"""
+        <div style="
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        ">
+            <div style="font-family: 'Inter', sans-serif; color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">
+                {label}
+            </div>
+            <div style="font-family: 'Outfit', sans-serif; color: #f8fafc; font-size: 1.8rem; font-weight: 700;">
+                {content}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    pio.templates["maya_readable"] = maya_template
-    pio.templates.default = "maya_readable"
-    px.defaults.template = "maya_readable"
-    px.defaults.color_discrete_sequence = PERSONA_COLORS
+
+
+def executive_metric(label: str, value: str, delta: str = ""):
+    """Custom metric component for high-end data cards."""
+    color = "#2ECC71" if "+" in str(delta) else "#E74C3C"
+    delta_html = f'<span style="color: {color}; font-size: 0.9rem; margin-left: 8px;">{delta}</span>' if delta else ""
+    
+    st.markdown(f"""
+        <div style="
+            background: rgba(30, 41, 59, 0.4);
+            border-left: 3px solid rgba(212, 175, 55, 0.8);
+            border-radius: 4px 12px 12px 4px;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+        ">
+            <div style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{label}</div>
+            <div style="color: #f1f5f9; font-size: 1.6rem; font-weight: 700; font-family: 'Outfit';">
+                {value}{delta_html}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
 
 def style_chart(
@@ -426,23 +484,36 @@ def style_chart(
 ):
     fig.update_layout(
         height=height,
-        title_font=dict(size=21, color="#1c2737"),
-        font=dict(size=13, color="#20242b"),
-        legend=dict(yanchor="top", y=1.02, xanchor="left", x=0.01, bgcolor="rgba(255,251,243,0.96)", font=dict(size=12)),
-        hoverlabel=dict(font_size=13, bgcolor="#fffaf2", bordercolor="#d9c8a7", font_color="#1e2228"),
+        title_font=dict(size=20, color="#F8FAFC", family="Outfit"),
+        font=dict(size=13, color="#F1F5F9", family="Inter"),
+        legend=dict(
+            yanchor="top", y=1.02, xanchor="left", x=0.01, 
+            bgcolor="rgba(15, 23, 42, 0.9)", 
+            bordercolor="rgba(212, 175, 55, 0.4)",
+            borderwidth=1,
+            font=dict(size=12, color="#F8FAFC")
+        ),
+        hoverlabel=dict(
+            font_size=13, 
+            bgcolor="#1E293B", 
+            bordercolor="rgba(212, 175, 55, 0.5)", 
+            font_color="#F8FAFC"
+        ),
         margin=dict(l=62, r=22, t=64, b=58),
         paper_bgcolor=CHART_PAPER_BG,
         plot_bgcolor=CHART_PLOT_BG,
     )
+    fig.update_xaxes(title_font_color="#F1F5F9", tickfont_color="#CBD5E1", gridcolor="rgba(255,255,255,0.05)")
+    fig.update_yaxes(title_font_color="#F1F5F9", tickfont_color="#CBD5E1", gridcolor="rgba(255,255,255,0.05)")
 
     if kind == "pie":
         fig.update_traces(
             textposition="outside",
             textfont_size=13,
             textinfo="percent+label",
-            marker=dict(line=dict(color="#ffffff", width=2)),
-            insidetextfont=dict(color="#ffffff", size=12),
-            outsidetextfont=dict(color="#1d2129", size=12),
+            marker=dict(line=dict(color="#1e293b", width=2)),
+            insidetextfont=dict(color="#f8fafc", size=12),
+            outsidetextfont=dict(color="#cbd5e1", size=12),
             automargin=True,
         )
         return fig
@@ -453,24 +524,24 @@ def style_chart(
             tickangle=-25 if rotate_x else 0,
             automargin=True,
             showline=True,
-            linecolor="#b7a98d",
-            tickfont=dict(size=12, color="#22262e"),
-            title_font=dict(size=13, color="#283445"),
-            gridcolor=GRID_COLOR,
+            linecolor="rgba(212, 175, 55, 0.4)",
+            tickfont=dict(size=12, color="#CBD5E1"),
+            title_font=dict(size=13, color="#F1F5F9"),
+            gridcolor="rgba(255,255,255,0.05)",
         )
         fig.update_yaxes(
             title=y_title,
             automargin=True,
             showline=True,
-            linecolor="#b7a98d",
-            gridcolor=GRID_COLOR,
-            tickfont=dict(size=12, color="#22262e"),
-            title_font=dict(size=13, color="#283445"),
+            linecolor="rgba(212, 175, 55, 0.4)",
+            gridcolor="rgba(255,255,255,0.05)",
+            tickfont=dict(size=12, color="#CBD5E1"),
+            title_font=dict(size=13, color="#F1F5F9"),
         )
 
         for tr in fig.data:
             if getattr(tr, "type", "") in {"bar", "histogram", "scatter", "scattergl"}:
-                tr.update(marker_line_color="#ffffff", marker_line_width=1)
+                tr.update(marker_line_color="rgba(212, 175, 55, 0.5)", marker_line_width=1)
         if len(fig.data) == 1 and getattr(fig.data[0], "type", "") in {"bar", "histogram", "scatter"}:
             fig.update_traces(marker_color=ACCENT_PRIMARY)
     return fig
@@ -2826,11 +2897,11 @@ def main() -> None:
                 if uid in name_map:
                     name_map[uid] = str(r["display_name"])
 
-        st.subheader(page)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Users", f"{wa['user_id'].nunique()}")
-        m2.metric("Messages", f"{len(wa)}")
-        m3.metric("Global Avg Sentiment", f"{wa['sentiment_score'].mean():.3f}")
+        st.markdown("### Executive Overview")
+        c1, c2, c3 = st.columns(3)
+        with c1: executive_card("Total Users Tracked", f"{wa['user_id'].nunique():,}")
+        with c2: executive_card("Behavioral Events", f"{len(wa):,}")
+        with c3: executive_card("System Sentiment", f"{wa['sentiment_score'].mean():.3f}")
 
         if page == "Global Sentiment Analysis":
             st.subheader("Sentiment Quality Monitor")
@@ -2875,10 +2946,10 @@ def main() -> None:
             conf_drift = recent_conf - prev_conf if pd.notna(prev_conf) else np.nan
 
             q1, q2, q3, q4 = st.columns(4)
-            q1.metric("Avg Confidence (14d)", f"{recent_conf:.1%}", delta=f"{conf_drift:+.1%}" if pd.notna(conf_drift) else None)
-            q2.metric("Low-Confidence Rate", f"{low_conf_rate:.1%}")
-            q3.metric("Negative Share (14d)", f"{recent_neg_ratio:.1%}", delta=f"{neg_drift:+.1%}" if pd.notna(neg_drift) else None)
-            q4.metric("Uncertain Messages", f"{int((wa_quality['confidence_proxy'] < 0.20).sum()):,}")
+            with q1: executive_metric("Avg Confidence (14d)", f"{recent_conf:.1%}", delta=f"{conf_drift:+.1%}")
+            with q2: executive_metric("Low-Confidence Rate", f"{low_conf_rate:.1%}")
+            with q3: executive_metric("Negative Share (14d)", f"{recent_neg_ratio:.1%}", delta=f"{neg_drift:+.1%}")
+            with q4: executive_metric("Uncertain Messages", f"{int((wa_quality['confidence_proxy'] < 0.20).sum()):,}")
 
             gleft, gright = st.columns(2)
             with gleft:
@@ -3312,66 +3383,65 @@ def main() -> None:
             health = compute_xgb_prediction_health(pred_summary)
 
             st.markdown("### Prediction Snapshot")
-            with st.container(border=True):
-                s1, s2, s3, s4 = st.columns(4)
-                s1.metric("Total Users", f"{total_users:,}")
-                s2.metric("Positive Predictions", f"{positive_count:,}")
-                s3.metric("Negative Predictions", f"{negative_count:,}")
-                s4.metric("Class Dominance", f"{float(health['dominance']):.1%}")
+            s1, s2, s3, s4 = st.columns(4)
+            with s1: executive_metric("Total Users", f"{total_users:,}")
+            with s2: executive_metric("Positive Forecasts", f"{positive_count:,}")
+            with s3: executive_metric("Negative Forecasts", f"{negative_count:,}")
+            with s4: executive_metric("Class Concentration", f"{float(health['dominance']):.1%}")
 
-                if bool(health["collapse_flag"]):
-                    st.error(
-                        "Model collapse risk detected: predictions are dominated by one class with very low variation. "
-                        "Recheck target balance and training labels before trusting SHAP outputs."
-                    )
-                elif float(health["dominance"]) >= 0.85:
-                    if float(health.get("probability_std", np.nan)) <= 0.10:
-                        st.warning("Prediction mix is heavily skewed. Monitor class balance and probability spread each run.")
-
-                improve_view = pred_summary.copy()
-                improve_view["confidence"] = pd.to_numeric(improve_view.get("confidence"), errors="coerce")
-                if improve_view["confidence"].isna().all():
-                    improve_view["confidence"] = (2.0 * (improve_view["pred_prob_positive"] - 0.5).abs()).clip(0.0, 1.0)
-                else:
-                    improve_view["confidence"] = improve_view["confidence"].fillna(
-                        (2.0 * (improve_view["pred_prob_positive"] - 0.5).abs()).clip(0.0, 1.0)
-                    )
-
-                names = load_user_directory()
-                if not names.empty and "user_id" in improve_view.columns:
-                    improve_view = improve_view.merge(names, on="user_id", how="left")
-                    improve_view["user"] = improve_view["display_name"].fillna("User (" + improve_view["user_id"].astype(str) + ")")
-                elif "user_id" in improve_view.columns:
-                    improve_view["user"] = "User (" + improve_view["user_id"].astype(str) + ")"
-                else:
-                    improve_view["user"] = "User"
-
-                def recommendation_for_row(row: pd.Series) -> str:
-                    prob_pos = float(row.get("pred_prob_positive", 0.0))
-                    confidence = float(row.get("confidence", 0.0))
-                    pred_class = str(row.get("predicted_class", "")).strip().lower()
-
-                    if 0.45 <= prob_pos <= 0.55:
-                        return "Borderline score; add more labeled feedback samples for this user."
-                    if confidence < 0.60:
-                        return "Low confidence; gather recent examples and retrain with fresher labels."
-                    if pred_class == "negative" and prob_pos < 0.25:
-                        return "Strong negative signal; review message context and add nuanced sentiment labels."
-                    if pred_class == "positive" and prob_pos > 0.80:
-                        return "Stable prediction; keep monitoring for drift with periodic label audits."
-                    return "Improve feature coverage using richer behavioral and interaction-level signals."
-
-                improve_view["improvement_action"] = improve_view.apply(recommendation_for_row, axis=1)
-                show_cols = [
-                    c
-                    for c in ["user", "user_id", "predicted_class", "pred_prob_positive", "confidence", "improvement_action"]
-                    if c in improve_view.columns
-                ]
-                st.dataframe(
-                    improve_view[show_cols].sort_values(["confidence", "pred_prob_positive"], ascending=[True, True]),
-                    width="stretch",
-                    height=330,
+            if bool(health["collapse_flag"]):
+                st.error(
+                    "Model collapse risk detected: predictions are dominated by one class with very low variation. "
+                    "Recheck target balance and training labels before trusting SHAP outputs."
                 )
+            elif float(health["dominance"]) >= 0.85:
+                if float(health.get("probability_std", np.nan)) <= 0.10:
+                    st.warning("Prediction mix is heavily skewed. Monitor class balance and probability spread each run.")
+
+            improve_view = pred_summary.copy()
+            improve_view["confidence"] = pd.to_numeric(improve_view.get("confidence"), errors="coerce")
+            if improve_view["confidence"].isna().all():
+                improve_view["confidence"] = (2.0 * (improve_view["pred_prob_positive"] - 0.5).abs()).clip(0.0, 1.0)
+            else:
+                improve_view["confidence"] = improve_view["confidence"].fillna(
+                    (2.0 * (improve_view["pred_prob_positive"] - 0.5).abs()).clip(0.0, 1.0)
+                )
+
+            names = load_user_directory()
+            if not names.empty and "user_id" in improve_view.columns:
+                improve_view = improve_view.merge(names, on="user_id", how="left")
+                improve_view["user"] = improve_view["display_name"].fillna("User (" + improve_view["user_id"].astype(str) + ")")
+            elif "user_id" in improve_view.columns:
+                improve_view["user"] = "User (" + improve_view["user_id"].astype(str) + ")"
+            else:
+                improve_view["user"] = "User"
+
+            def recommendation_for_row(row: pd.Series) -> str:
+                prob_pos = float(row.get("pred_prob_positive", 0.0))
+                confidence = float(row.get("confidence", 0.0))
+                pred_class = str(row.get("predicted_class", "")).strip().lower()
+
+                if 0.45 <= prob_pos <= 0.55:
+                    return "Borderline score; add more labeled feedback samples for this user."
+                if confidence < 0.60:
+                    return "Low confidence; gather recent examples and retrain with fresher labels."
+                if pred_class == "negative" and prob_pos < 0.25:
+                    return "Strong negative signal; review message context and add nuanced sentiment labels."
+                if pred_class == "positive" and prob_pos > 0.80:
+                    return "Stable prediction; keep monitoring for drift with periodic label audits."
+                return "Improve feature coverage using richer behavioral and interaction-level signals."
+
+            improve_view["improvement_action"] = improve_view.apply(recommendation_for_row, axis=1)
+            show_cols = [
+                c
+                for c in ["user", "user_id", "predicted_class", "pred_prob_positive", "confidence", "improvement_action"]
+                if c in improve_view.columns
+            ]
+            st.dataframe(
+                improve_view[show_cols].sort_values(["confidence", "pred_prob_positive"], ascending=[True, True]),
+                width="stretch",
+                height=330,
+            )
         else:
             st.info("Prediction snapshot card is unavailable because per-user XGBoost predictions were not found.")
 
@@ -3490,9 +3560,10 @@ def main() -> None:
             return
 
         m1, m2, m3 = st.columns(3)
-        m1.metric("Users With Persona", f"{persona_table['user_id'].nunique()}")
-        m2.metric("Total Personas", f"{persona_profiles['persona_label'].nunique()}")
-        m3.metric("Largest Persona", str(persona_profiles.sort_values('users', ascending=False).iloc[0]['persona_label']))
+        with m1: executive_card("Users With Persona", f"{persona_table['user_id'].nunique():,}")
+        with m2: executive_card("Total Personas", f"{persona_profiles['persona_label'].nunique():,}")
+        with m3: executive_card("Largest Persona", str(persona_profiles.sort_values('users', ascending=False).iloc[0]['persona_label']))
+        st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
 
         left, right = st.columns(2)
         with left:
