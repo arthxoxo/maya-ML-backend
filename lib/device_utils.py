@@ -38,16 +38,15 @@ def resolve_device() -> torch.device:
 
 
 def resolve_xgb_device() -> str:
-    """Return the XGBoost-compatible device string: 'cuda' | 'mps' | 'cpu'.
+    """Return the XGBoost-compatible device string: 'cuda' | 'cpu'.
 
-    Requires XGBoost >= 2.0 for MPS support and >= 1.6 for CUDA support.
-    Falls back to 'cpu' gracefully on any unsupported build.
+    Note: While some XGBoost builds support 'mps', the current environment 
+    build requires falling back to 'cpu' for stability on macOS.
     """
     if torch.cuda.is_available():
         xgb_dev = "cuda"
-    elif torch.backends.mps.is_available():
-        xgb_dev = "mps"
     else:
+        # Fallback to cpu for Mac/MPS since current XGB build lacks 'mps' support
         xgb_dev = "cpu"
 
     print(f"[device] Using XGBoost device: {xgb_dev}")
