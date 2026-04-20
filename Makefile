@@ -8,7 +8,7 @@ MAIN_PIP  := $(if $(wildcard main_venv/Scripts/pip.exe),./main_venv/Scripts/pip.
 # Tool paths
 PYENV ?= pyenv
 
-.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev reset-data pipeline docker-pipeline
+.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev empty-secret-data reset-data pipeline docker-pipeline
 
 setup: setup-all
 
@@ -69,3 +69,7 @@ reset-data:
 	@mkdir -p $(SECRET_DIR)
 	@find $(SECRET_DIR) -mindepth 1 -maxdepth 1 -type f -delete
 	@cp $(SEED_DIR)/*.csv $(SECRET_DIR)/
+
+empty-secret-data:
+	@mkdir -p $(SECRET_DIR)
+	@find $(SECRET_DIR) -mindepth 1 -exec rm -rf {} +
