@@ -16,4 +16,5 @@ tqdm>=4.66
 
 redis>=5.0
 confluent-kafka>=2.3
+pytest>=7.4
 setuptools<81

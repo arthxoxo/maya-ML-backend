@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 import re
 
-from pyflink.table import DataTypes, EnvironmentSettings, TableEnvironment
+from pyflink.table import DataTypes, EnvironmentSettings, TableEnvironment, Row
 from pyflink.table.udf import udf
 
 from config import BASE_DIR, FLINK_ENGINEERED_DIR
@@ -134,16 +134,13 @@ def _hf_sentiment_full(text: str) -> tuple[float, float]:
         return val, abs(val)
 
 
-@udf(result_type=DataTypes.DOUBLE())
-def compute_sentiment(text: str) -> float:
-    score, _ = _hf_sentiment_full(text)
-    return round(score, 4)
-
-
-@udf(result_type=DataTypes.DOUBLE())
-def compute_sentiment_confidence(text: str) -> float:
-    _, conf = _hf_sentiment_full(text)
-    return round(conf, 4)
+@udf(result_type=DataTypes.ROW([
+    DataTypes.FIELD("score", DataTypes.DOUBLE()),
+    DataTypes.FIELD("confidence", DataTypes.DOUBLE())
+]))
+def compute_sentiment_all(text: str) -> Row:
+    score, conf = _hf_sentiment_full(text)
+    return Row(round(float(score), 4), round(float(conf), 4))
 
 
 @udf(result_type=DataTypes.STRING())
@@ -175,8 +172,7 @@ def main() -> None:
     kafka_jar = kafka_jar_candidates[0]
     t_env.get_config().set("pipeline.jars", f"file://{kafka_jar.resolve()}")
 
-    t_env.create_temporary_function("compute_sentiment", compute_sentiment)
-    t_env.create_temporary_function("compute_sentiment_confidence", compute_sentiment_confidence)
+    t_env.create_temporary_function("compute_sentiment_all", compute_sentiment_all)
     t_env.create_temporary_function("sentiment_label", sentiment_label)
 
     # Kafka sources
@@ -447,13 +443,15 @@ def main() -> None:
         """
     )
 
-    messages_enriched_table = t_env.sql_query(
-        """
+    # Single View enrichment to avoid double-inference across branches
+    t_env.execute_sql(
+        f"""
+        CREATE TEMPORARY VIEW enriched_messages AS
         SELECT
             message_id,
             session_id,
             sender_user_id,
-            role,
+            `role`,
             message,
             created_at,
             updated_at,
@@ -464,15 +462,15 @@ def main() -> None:
             cost_usd,
             recipient_name,
             status,
-            sentiment_score,
-            sentiment_confidence,
-            sentiment_label(sentiment_score) AS sentiment_label
+            s.score AS sentiment_score,
+            s.confidence AS sentiment_confidence,
+            sentiment_label(s.score) AS sentiment_label
         FROM (
             SELECT
                 id AS message_id,
                 session_id,
                 sender_user_id,
-                role,
+                `role`,
                 message,
                 created_at,
                 updated_at,
@@ -483,33 +481,24 @@ def main() -> None:
                 cost_usd,
                 recipient_name,
                 status,
-                compute_sentiment(message) AS sentiment_score,
-                compute_sentiment_confidence(message) AS sentiment_confidence
+                compute_sentiment_all(message) AS s
             FROM raw_whatsapp_messages
-            WHERE LOWER(COALESCE(role, '')) = 'user'
-        ) m
+            WHERE LOWER(COALESCE(`role`, '')) = 'user'
+        )
         """
     )
 
+    messages_enriched_table = t_env.from_path("enriched_messages")
     console_table = t_env.sql_query(
         """
         SELECT
             message_id,
             session_id,
-            role,
+            `role`,
             sentiment_score,
             sentiment_confidence,
-            sentiment_label(sentiment_score) AS sentiment_label
-        FROM (
-            SELECT
-                id AS message_id,
-                session_id,
-                role,
-                compute_sentiment(message) AS sentiment_score,
-                compute_sentiment_confidence(message) AS sentiment_confidence
-            FROM raw_whatsapp_messages
-            WHERE LOWER(COALESCE(role, '')) = 'user'
-        ) c
+            sentiment_label
+        FROM enriched_messages
         """
     )
 

@@ -19,7 +19,7 @@ setup-flink-venv:
 	$(PYENV) install -s 3.10.14
 	PYENV_VERSION=3.10.14 $(PYENV) exec python -m venv flink_venv
 	$(FLINK_PIP) install --upgrade "pip<24.1" "setuptools<70" wheel
-	$(FLINK_PIP) install apache-flink>=1.19.0 confluent-kafka -c build-constraints.txt
+	$(FLINK_PIP) install apache-flink>=1.19.0 confluent-kafka torch transformers -c build-constraints.txt
 
 setup-main-venv:
 	$(PYENV) install -s 3.11.9
