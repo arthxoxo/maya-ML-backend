@@ -230,3 +230,8 @@ __marimo__/
 main_venv/
 .python-version-flink
 .python-version-main
+
+# Legacy and local data
+1.19.0
+=1.19.0
+user_feature_matrix.csv
