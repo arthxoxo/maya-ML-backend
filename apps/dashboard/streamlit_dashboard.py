@@ -326,7 +326,7 @@ def heuristic_sentiment_fallback(text: str) -> tuple[float, float]:
 
 
 def style_app() -> None:
-    st.set_page_config(page_title="Maya Behavioral Intelligence", page_icon="🔱", layout="wide")
+    st.set_page_config(page_title="Maya Behavioral Intelligence", page_icon="🔱", layout="wide", initial_sidebar_state="collapsed")
     st.markdown(
         """
         <style>
@@ -338,14 +338,39 @@ def style_app() -> None:
             color: #f8fafc;
         }
 
-        /* Sidebar Styling */
+        /* Restore Sidebar but Hide Navigation List */
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+
+        /* Hide Header Clutter but Keep Toggle */
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
+        
+        /* Style Sidebar Open/Close Toggle (Gold) */
+        button[kind="header"] {
+            color: #d4af37 !important;
+            background: rgba(30, 41, 59, 0.4) !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba(212, 175, 55, 0.2) !important;
+            transition: all 0.2s ease !important;
+        }
+        button[kind="header"]:hover {
+            border-color: #d4af37 !important;
+            background: rgba(30, 41, 59, 0.7) !important;
+        }
+
+        /* Hide Footer */
+        footer {
+            visibility: hidden;
+        }
+
+        /* Sidebar Styling (Redundant if hidden, but kept for fallback) */
         [data-testid="stSidebar"] {
             background-color: rgba(15, 23, 42, 0.95);
             backdrop-filter: blur(12px);
             border-right: 1px solid rgba(212, 175, 55, 0.15);
-        }
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-            color: #e2e8f0;
         }
 
         /* Metric Cards Overwrite */
@@ -377,10 +402,12 @@ def style_app() -> None:
             font-weight: 700;
         }
 
-        /* Global Typography */
+        /* Global Typography & Layout */
         .block-container {
-            padding-top: 2rem;
+            padding-top: 1.5rem !important;
+            padding-bottom: 2rem;
             font-family: 'Inter', sans-serif;
+            max-width: 96% !important;
         }
         h1, h2, h3 {
             font-family: 'Outfit', sans-serif;
