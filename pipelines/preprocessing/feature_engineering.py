@@ -24,7 +24,7 @@ import warnings
 import re
 from tqdm import tqdm
 
-from app_config import FEATURE_OUTPUT_DIR, RAW_DATA_DIR
+from app_config import FEATURE_OUTPUT_DIR, RAW_DATA_DIR, SENTIMENT_ARTIFACT_DIR
 
 warnings.filterwarnings("ignore")
 
@@ -172,6 +172,57 @@ def score_texts_sentiment(texts: list[str], batch_size: int = 32) -> tuple[np.nd
         pol = np.array([v[0] for v in vals], dtype=np.float32)
         subj = np.array([v[1] for v in vals], dtype=np.float32)
         return pol, subj
+
+
+def load_precomputed_sentiment(user_msgs: pd.DataFrame) -> pd.DataFrame:
+    """
+    Attach precomputed sentiment from artifacts/sentiment/sentiment_scores.csv.
+    Falls back to empty sentiment columns when artifact is missing/unusable.
+    """
+    enriched = user_msgs.copy()
+    artifact_path = SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"
+
+    if not artifact_path.exists():
+        print(f"    [Sentiment] Precomputed artifact not found at {artifact_path}")
+        enriched["sentiment"] = np.nan
+        enriched["subjectivity"] = np.nan
+        return enriched
+
+    try:
+        scores = pd.read_csv(artifact_path)
+    except Exception as exc:
+        print(f"    [Sentiment] Failed to read precomputed artifact ({exc}).")
+        enriched["sentiment"] = np.nan
+        enriched["subjectivity"] = np.nan
+        return enriched
+
+    if "sentiment_score" not in scores.columns:
+        print("    [Sentiment] sentiment_scores.csv missing 'sentiment_score' column.")
+        enriched["sentiment"] = np.nan
+        enriched["subjectivity"] = np.nan
+        return enriched
+
+    score_cols = [c for c in ["id", "sentiment_score", "sentiment_confidence"] if c in scores.columns]
+    if "id" in score_cols and "id" in enriched.columns:
+        merged = enriched.merge(scores[score_cols], on="id", how="left")
+    else:
+        # Fallback key when message id is unavailable in either dataset.
+        fallback_keys = [c for c in ["session_id", "created_at", "message"] if c in scores.columns and c in enriched.columns]
+        if len(fallback_keys) < 2:
+            print("    [Sentiment] Could not align precomputed sentiment to messages; missing join keys.")
+            enriched["sentiment"] = np.nan
+            enriched["subjectivity"] = np.nan
+            return enriched
+        merged = enriched.merge(scores[fallback_keys + [c for c in ["sentiment_score", "sentiment_confidence"] if c in scores.columns]], on=fallback_keys, how="left")
+
+    merged["sentiment"] = pd.to_numeric(merged.get("sentiment_score"), errors="coerce")
+    conf = pd.to_numeric(merged.get("sentiment_confidence"), errors="coerce")
+    merged["subjectivity"] = conf.where(conf.notna(), merged["sentiment"].abs()).clip(0.0, 1.0)
+
+    matched = int(merged["sentiment"].notna().sum())
+    total = int(len(merged))
+    print(f"    [Sentiment] Loaded precomputed scores for {matched:,}/{total:,} user messages.")
+    return merged.drop(columns=["sentiment_score", "sentiment_confidence"], errors="ignore")
 
 
 # ── Map messages to users via sessions ────────────────────────────────────────
@@ -375,12 +426,17 @@ def build_sentiment_features(messages):
 
     user_msgs = messages[messages["role"] == "user"].copy()
 
-    # Compute sentiment for all user messages
-    print("    Computing sentiment for all user messages (HF model with heuristic fallback)...")
-    texts = user_msgs["message"].fillna("").astype(str).tolist()
-    pol, subj = score_texts_sentiment(texts)
-    user_msgs["sentiment"] = pol
-    user_msgs["subjectivity"] = subj
+    print("    Loading precomputed sentiment artifact (RoBERTa output)...")
+    user_msgs = load_precomputed_sentiment(user_msgs)
+
+    missing_mask = user_msgs["sentiment"].isna()
+    missing_count = int(missing_mask.sum())
+    if missing_count:
+        print(f"    Computing fallback sentiment for {missing_count:,} unmatched messages...")
+        texts = user_msgs.loc[missing_mask, "message"].fillna("").astype(str).tolist()
+        pol, subj = score_texts_sentiment(texts)
+        user_msgs.loc[missing_mask, "sentiment"] = pol
+        user_msgs.loc[missing_mask, "subjectivity"] = subj
 
     feats = []
     for uid, grp in user_msgs.groupby("user_id"):
