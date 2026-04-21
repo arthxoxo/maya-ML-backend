@@ -174,13 +174,13 @@ def score_texts_sentiment(texts: list[str], batch_size: int = 32) -> tuple[np.nd
         return pol, subj
 
 
-def load_precomputed_sentiment(user_msgs: pd.DataFrame) -> pd.DataFrame:
+def load_precomputed_sentiment(df_to_enrich: pd.DataFrame, artifact_name: str = "sentiment_scores.csv") -> pd.DataFrame:
     """
-    Attach precomputed sentiment from artifacts/sentiment/sentiment_scores.csv.
+    Attach precomputed sentiment from artifacts/sentiment/<artifact_name>.
     Falls back to empty sentiment columns when artifact is missing/unusable.
     """
-    enriched = user_msgs.copy()
-    artifact_path = SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"
+    enriched = df_to_enrich.copy()
+    artifact_path = SENTIMENT_ARTIFACT_DIR / artifact_name
 
     if not artifact_path.exists():
         print(f"    [Sentiment] Precomputed artifact not found at {artifact_path}")
@@ -426,8 +426,8 @@ def build_sentiment_features(messages):
 
     user_msgs = messages[messages["role"] == "user"].copy()
 
-    print("    Loading precomputed sentiment artifact (RoBERTa output)...")
-    user_msgs = load_precomputed_sentiment(user_msgs)
+    print("    Loading precomputed message sentiment artifact (RoBERTa output)...")
+    user_msgs = load_precomputed_sentiment(user_msgs, "sentiment_scores.csv")
 
     missing_mask = user_msgs["sentiment"].isna()
     missing_count = int(missing_mask.sum())
@@ -547,9 +547,14 @@ def build_feedback_features(feedbacks):
     """Per-user feedback-derived features."""
     print("🔧  Building feedback features...")
 
-    feedback_texts = feedbacks["message"].fillna("").astype(str).tolist()
-    feedback_polarity, _ = score_texts_sentiment(feedback_texts)
-    feedbacks["sentiment"] = feedback_polarity
+    # Try to load precomputed feedback sentiment first
+    feedbacks = load_precomputed_sentiment(feedbacks, "feedback_sentiment.csv")
+
+    if feedbacks["sentiment"].isna().any():
+        print("    [Feedback] Computing fallback sentiment for missing feedback scores...")
+        feedback_texts = feedbacks.loc[feedbacks["sentiment"].isna(), "message"].fillna("").astype(str).tolist()
+        feedback_polarity, _ = score_texts_sentiment(feedback_texts)
+        feedbacks.loc[feedbacks["sentiment"].isna(), "sentiment"] = feedback_polarity
 
     feats = []
     for uid, grp in feedbacks.groupby("user_id"):

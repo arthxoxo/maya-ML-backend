@@ -158,24 +158,42 @@ def main() -> None:
         messages_secret = read_secret_csv("whatsapp_messages.csv")
         if not messages_secret.empty:
             messages_secret = messages_secret.rename(columns={"id": "message_id"})
-            # To provide fallback sentiment scores when Flink hasn't run:
-            import re
-            def _heuristic(text: str) -> float:
-                s = str(text or "").strip().lower()
-                if not s: return 0.0
-                tokens = re.findall(r"[a-z']+", s)
-                if not tokens: return 0.0
-                pos_hits = sum(1 for t in tokens if t in {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou", "resolved", "perfect", "excellent", "fast", "smooth"})
-                neg_hits = sum(1 for t in tokens if t in {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"})
-                raw = (pos_hits - neg_hits) / max(len(tokens), 6)
-                if "!" in s: raw *= 1.1
-                if any(w in s for w in ["not good", "not happy", "never again"]): raw -= 0.2
-                if any(w in s for w in ["not bad", "works now", "all good"]): raw += 0.2
-                return float(max(min(raw * 2.0, 1.0), -1.0))
             
-            messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
-            messages_secret["sentiment_confidence"] = 0.5
-            messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
+            # Prefer Step 1 bulk sentiment artifacts if available
+            artifact_path = Path("artifacts/sentiment/sentiment_scores.csv")
+            if artifact_path.exists():
+                print(f"    [Fallback] Loading high-quality sentiment from Step 1 artifact: {artifact_path}")
+                scores_df = pd.read_csv(artifact_path)
+                # Align on message text and session/time if IDs are risky, but typically 'id' works
+                if "id" in scores_df.columns and "message_id" in messages_secret.columns:
+                    messages_secret = messages_secret.merge(
+                        scores_df[["id", "sentiment_score", "sentiment_confidence", "sentiment_label"]].rename(columns={"id": "message_id"}),
+                        on="message_id", how="left"
+                    )
+                else:
+                    # Fallback to heuristic if merge keys are missing
+                    artifact_path = None
+
+            if not artifact_path or messages_secret["sentiment_score"].isna().all():
+                print("    [Fallback] High-quality artifact missing or unusable; falling back to heuristic sentiment.")
+                import re
+                def _heuristic(text: str) -> float:
+                    s = str(text or "").strip().lower()
+                    if not s: return 0.0
+                    tokens = re.findall(r"[a-z']+", s)
+                    if not tokens: return 0.0
+                    pos_hits = sum(1 for t in tokens if t in {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou", "resolved", "perfect", "excellent", "fast", "smooth"})
+                    neg_hits = sum(1 for t in tokens if t in {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"})
+                    raw = (pos_hits - neg_hits) / max(len(tokens), 6)
+                    if "!" in s: raw *= 1.1
+                    if any(w in s for w in ["not good", "not happy", "never again"]): raw -= 0.2
+                    if any(w in s for w in ["not bad", "works now", "all good"]): raw += 0.2
+                    return float(max(min(raw * 2.0, 1.0), -1.0))
+                
+                messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
+                messages_secret["sentiment_confidence"] = 0.5
+                messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
+            
             messages_raw = align_columns(messages_secret, messages_cols)
 
 

@@ -80,7 +80,7 @@ def build_steps(include_redis_publish: bool) -> list[Step]:
     steps = [
         Step(
             id="bulk_sentiment_preprocessing",
-            description="Run high-quality RoBERTa sentiment analysis on raw WhatsApp messages → artifacts/sentiment/",
+            description="Run high-quality RoBERTa sentiment analysis on raw WhatsApp messages & feedbacks → artifacts/sentiment/",
             cmd=[py, "-m", "pipelines.preprocessing.bulk_sentiment_processor"],
         ),
         Step(
