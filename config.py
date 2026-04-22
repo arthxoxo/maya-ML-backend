@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # In Docker, environment variables are already set.
+    pass
+
 
 def _env_path(name: str, default: Path) -> Path:
     raw = os.getenv(name, "").strip()
@@ -47,3 +54,9 @@ SENTIMENT_ARTIFACT_DIR = _env_path("MAYA_SENTIMENT_ARTIFACT_DIR", ARTIFACTS_DIR 
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 REDIS_PREFIX = os.getenv("MAYA_REDIS_PREFIX", "maya:dashboard").strip() or "maya:dashboard"
 STORE_TARGET = os.getenv("MAYA_STORE_TARGET", "auto").strip().lower() or "auto"
+
+# Streaming infrastructure.
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:9092").strip() or "localhost:9092"
+
+# Database Ingestion
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()

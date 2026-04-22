@@ -18,3 +18,19 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  maya-ingestor:
+    build: .
+    container_name: m-ingestor
+    command: ["ingestor"]
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MAYA_SECRET_DATA_DIR=/app/secret_data
+    volumes:
+      - .:/app
+      - ./secret_data:/app/secret_data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

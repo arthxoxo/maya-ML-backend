@@ -22,12 +22,16 @@ case "$COMPONENT" in
     echo "Starting Kafka CSV Producer (Python 3.10)..."
     exec /app/flink_venv/bin/python3 pipelines/ingestion/kafka_csv_producer.py --delay 0.1
     ;;
+  ingestor)
+    echo "Starting Database Ingestor (Python 3.11)..."
+    exec /app/main_venv/bin/python pipelines/ingestion/db_ingestor.py
+    ;;
   shell)
     exec /bin/bash
     ;;
   *)
     echo "Unknown component: $COMPONENT"
-    echo "Usage: ./entrypoint.sh [dashboard|flink|producer|shell]"
+    echo "Usage: ./entrypoint.sh [dashboard|flink|producer|ingestor|shell]"
     exit 1
     ;;
 esac

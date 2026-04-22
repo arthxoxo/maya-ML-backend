@@ -232,12 +232,24 @@ def map_messages_to_users(messages, sessions):
     """
     WhatsApp messages link to sessions via session_id.
     Sessions link to users via user_id.
+    Standardized RDS data may have an empty user_id column.
     """
+    # If user_id exists but is entirely null, drop it to avoid _x/_y merge collisions
+    if "user_id" in messages.columns and messages["user_id"].isna().all():
+        messages = messages.drop(columns=["user_id"])
+
+    # If user_id already exists and is mostly populated, we preserve it.
+    if "user_id" in messages.columns and messages["user_id"].notna().any():
+        print(f"    [Standardized] Messages already contain user_id. Preserving {messages['user_id'].notna().sum():,} mappings.")
+        return messages
+
     session_user_map = sessions[["id", "user_id"]].drop_duplicates()
     session_user_map = session_user_map.rename(columns={"id": "session_id"})
 
     merged = messages.merge(session_user_map, on="session_id", how="left")
-    print(f"    Messages mapped to users: {merged['user_id'].notna().sum():,} / {len(merged):,}")
+    
+    # If sessions had user_id, it is now the primary user_id
+    print(f"    Messages mapped to users: {merged['user_id'].notna().sum() if 'user_id' in merged.columns else 0:,} / {len(merged):,}")
     return merged
 
 
@@ -288,8 +300,8 @@ def build_message_features(messages):
 
     # ── Conversation depth (messages per session) ────────────────────────
     conv_depth = (
-        user_msgs.groupby("user_id")
-        .apply(lambda x: x.groupby("session_id").size().mean(), include_groups=False)
+        user_msgs.groupby(["user_id", "session_id"]).size()
+        .groupby("user_id").mean()
         .rename("avg_conversation_depth")
         .reset_index()
     )
@@ -393,6 +405,9 @@ def build_temporal_features(messages):
             ),
         }
         feats.append(feat)
+
+    if not feats:
+        return pd.DataFrame(columns=["user_id", "message_count_trend"])
 
     result = pd.DataFrame(feats)
 
@@ -650,8 +665,7 @@ def main():
     print("\n🔗  Merging all feature groups...")
 
     # Start with user identity
-    feature_matrix = users[["id", "first_name", "last_name", "status", "type", "timezone"]].copy()
-    feature_matrix = feature_matrix.rename(columns={"id": "user_id"})
+    feature_matrix = users[["user_id", "first_name", "last_name", "status", "type", "timezone"]].copy()
     feature_matrix["user_name"] = (
         feature_matrix["first_name"].fillna("") + " " + feature_matrix["last_name"].fillna("")
     ).str.strip()

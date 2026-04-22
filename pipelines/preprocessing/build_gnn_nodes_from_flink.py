@@ -121,8 +121,9 @@ def main() -> None:
     messages_raw = read_flink_dir(flink_dir / "messages_sentiment")
 
     users_cols = [
-        "user_id", "created_at", "updated_at", "deleted_at", "first_name", "last_name",
-        "timezone", "country", "status", "type", "longitude", "latitude", "contacts_backfilled",
+        "user_id", "created_at", "updated_at", "deleted_at", "first_name", "last_name", "email",
+        "phone_number", "device_id", "fcm_token", "country", "longitude", "latitude", "timezone",
+        "contacts_backfilled", "status", "type", "persona",
     ]
     sessions_cols = [
         "session_id", "user_id", "created_at", "updated_at", "deleted_at", "duration",
@@ -142,7 +143,7 @@ def main() -> None:
     if users_raw.empty:
         users_secret = read_secret_csv("users.csv")
         if not users_secret.empty:
-            users_secret = users_secret.rename(columns={"id": "user_id"})
+            # Note: users.csv now standardized to have 'user_id' from db_ingestor.py
             users_raw = align_columns(users_secret, users_cols)
     if sessions_raw.empty:
         sessions_secret = read_secret_csv("sessions.csv")
@@ -299,6 +300,7 @@ def main() -> None:
     else:
         msg["message_id"] = pd.to_numeric(msg["message_id"], errors="coerce").astype("Int64")
         msg["session_id"] = pd.to_numeric(msg["session_id"], errors="coerce").astype("Int64")
+        msg["user_id"] = pd.to_numeric(msg.get("user_id"), errors="coerce").astype("Int64")
         msg = msg.dropna(subset=["message_id", "session_id"]).drop_duplicates(subset=["message_id"], keep="last")
         msg = msg[msg["session_id"].isin(valid_session_ids)]
         msg["message_id"] = msg["message_id"].astype("int64")
@@ -318,7 +320,7 @@ def main() -> None:
         msg["sentiment_label"] = msg["sentiment_label"].fillna("neutral").astype(str).str.lower()
         messages_nodes = msg[
             [
-                "message_id", "session_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
+                "message_id", "session_id", "user_id", "created_at", "updated_at", "deleted_at", "role", "status", "model_name",
                 "recipient_name", "message", "message_char_len", "message_word_len", "input_tokens", "output_tokens",
                 "cost_usd", "sentiment_score", "sentiment_confidence", "sentiment_label",
             ]
