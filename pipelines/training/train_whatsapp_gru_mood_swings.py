@@ -18,8 +18,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+
 from app_config import BASE_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
 from lib.online_store import load_artifact_df, save_artifact_df
+
+
+class MoodGRU(nn.Module):
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.gru = nn.GRU(input_size=1, hidden_size=hidden, num_layers=1, batch_first=True)
+        self.head = nn.Linear(hidden, 1)
+
+    def forward(self, seq):
+        out, _ = self.gru(seq)
+        pred = self.head(out[:, -1, :])
+        return torch.tanh(pred)
 
 
 def resolve_input_path(path_str: str) -> Path:
@@ -137,15 +153,20 @@ def _load_sentiment_messages(sentiment_path: Path, sessions_path: Path) -> pd.Da
         if role.eq("user").any():
             s = s[role.eq("user")].copy()
 
-    if "user_id" not in s.columns:
-        if "session_id" in s.columns and sessions_path.exists():
-            sess = pd.read_csv(sessions_path, usecols=["id", "user_id"])
-            sess["id"] = pd.to_numeric(sess["id"], errors="coerce")
-            sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce")
-            s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
-            s = s.merge(sess.rename(columns={"id": "session_id"}), on="session_id", how="left")
+    if "session_id" in s.columns and sessions_path.exists():
+        sess = pd.read_csv(sessions_path, usecols=["id", "user_id"])
+        sess["id"] = pd.to_numeric(sess["id"], errors="coerce")
+        sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce")
+        s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
+        
+        s = s.merge(sess.rename(columns={"id": "session_id", "user_id": "session_user_id"}), on="session_id", how="left")
+        if "user_id" not in s.columns:
+            s["user_id"] = s["session_user_id"]
         else:
-            raise ValueError("sentiment_scores.csv must include user_id, or include session_id with sessions.csv available")
+            s["user_id"] = s["user_id"].fillna(s["session_user_id"])
+        s = s.drop(columns=["session_user_id"])
+    elif "user_id" not in s.columns:
+        raise ValueError("sentiment_scores.csv must include user_id, or include session_id with sessions.csv available")
 
     s["user_id"] = pd.to_numeric(s.get("user_id"), errors="coerce")
     s = s.dropna(subset=["user_id"]).copy()
@@ -205,17 +226,10 @@ def _train_gru(
     learning_rate: float,
     seed: int,
 ) -> tuple[object, float, float, float, int, int]:
-    try:
-        import torch
-        import torch.nn as nn
-        from torch.utils.data import DataLoader, TensorDataset
-
-        import sys
-        from pathlib import Path as _Path
-        sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
-        from lib.device_utils import resolve_device
-    except Exception as exc:
-        raise ImportError("PyTorch is required to train GRU mood model. Install torch to continue.") from exc
+    import sys
+    from pathlib import Path as _Path
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
+    from lib.device_utils import resolve_device
 
     _set_seed(seed)
     torch.manual_seed(seed)
@@ -280,16 +294,6 @@ def _train_gru(
 
     train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=max(1, batch_size), shuffle=True)
 
-    class MoodGRU(nn.Module):
-        def __init__(self, hidden: int):
-            super().__init__()
-            self.gru = nn.GRU(input_size=1, hidden_size=hidden, num_layers=1, batch_first=True)
-            self.head = nn.Linear(hidden, 1)
-
-        def forward(self, seq):
-            out, _ = self.gru(seq)
-            pred = self.head(out[:, -1, :])
-            return torch.tanh(pred)
 
     model = MoodGRU(hidden=max(8, int(hidden_size))).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(learning_rate))
@@ -318,7 +322,6 @@ def _train_gru(
 
 
 def _predict_sequences(model, x: np.ndarray) -> np.ndarray:
-    import torch
 
     # Move input to the same device the model lives on
     _device = next(model.parameters()).device
@@ -457,28 +460,38 @@ def main() -> None:
         )
         return
 
-    try:
-        model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
-            x=x,
-            y=y,
-            meta=meta,
-            hidden_size=int(args.hidden_size),
-            epochs=int(args.epochs),
-            batch_size=int(args.batch_size),
-            learning_rate=float(args.learning_rate),
-            seed=int(args.seed),
-        )
-    except (ValueError, ImportError) as exc:
-        warning = f"Skipping GRU mood swing training because the dataset is too small or runtime requirements are missing. Details: {exc}"
-        write_empty_outputs(
-            out_summary=out_summary,
-            out_report=out_report,
-            total_messages=int(len(df)),
-            eligible_users=int(meta["eligible_users"].iloc[0]) if "eligible_users" in meta.columns and not meta.empty else 0,
-            args=args,
-            warning=warning,
-        )
-        return
+    model_path = SENTIMENT_ARTIFACT_DIR / "gru_mood_model.pt"
+    if model_path.exists():
+        print(f"Loading existing GRU mood model from {model_path}")
+        model = MoodGRU(hidden=max(8, int(args.hidden_size)))
+        model.load_state_dict(torch.load(model_path, map_location="cpu"))
+        train_loss, val_mse, val_baseline_mse = 0.0, 0.0, 0.0
+        train_samples, val_samples = len(x), 0
+    else:
+        try:
+            model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
+                x=x,
+                y=y,
+                meta=meta,
+                hidden_size=int(args.hidden_size),
+                epochs=int(args.epochs),
+                batch_size=int(args.batch_size),
+                learning_rate=float(args.learning_rate),
+                seed=int(args.seed),
+            )
+            torch.save(model.state_dict(), model_path)
+        except (ValueError, ImportError) as exc:
+            warning = f"Skipping GRU mood swing training because the dataset is too small or runtime requirements are missing. Details: {exc}"
+            write_empty_outputs(
+                out_summary=out_summary,
+                out_report=out_report,
+                total_messages=int(len(df)),
+                eligible_users=int(meta["eligible_users"].iloc[0]) if "eligible_users" in meta.columns and not meta.empty else 0,
+                args=args,
+                warning=warning,
+            )
+            return
+            
     pred = _predict_sequences(model, x)
     summary = _summarize_users(df=df, meta=meta, x=x, y=y, pred=pred)
 

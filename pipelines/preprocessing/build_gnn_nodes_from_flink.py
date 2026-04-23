@@ -139,59 +139,79 @@ def main() -> None:
         "status", "sentiment_score", "sentiment_confidence", "sentiment_label",
     ]
 
-    # Fallback path for local/offline recovery when Flink sinks are empty.
-    if users_raw.empty:
-        users_secret = read_secret_csv("users.csv")
-        if not users_secret.empty:
-            # Note: users.csv now standardized to have 'user_id' from db_ingestor.py
-            users_raw = align_columns(users_secret, users_cols)
-    if sessions_raw.empty:
-        sessions_secret = read_secret_csv("sessions.csv")
-        if not sessions_secret.empty:
-            sessions_secret = sessions_secret.rename(columns={"id": "session_id"})
-            sessions_raw = align_columns(sessions_secret, sessions_cols)
-    if messages_raw.empty:
-        messages_secret = read_secret_csv("whatsapp_messages.csv")
-        if not messages_secret.empty:
-            messages_secret = messages_secret.rename(columns={"id": "message_id"})
-            
-            # Prefer Step 1 bulk sentiment artifacts if available
-            artifact_path = Path("artifacts/sentiment/sentiment_scores.csv")
-            if artifact_path.exists():
-                print(f"    [Fallback] Loading high-quality sentiment from Step 1 artifact: {artifact_path}")
-                scores_df = pd.read_csv(artifact_path)
-                # Align on message text and session/time if IDs are risky, but typically 'id' works
-                if "id" in scores_df.columns and "message_id" in messages_secret.columns:
-                    messages_secret = messages_secret.merge(
-                        scores_df[["id", "sentiment_score", "sentiment_confidence", "sentiment_label"]].rename(columns={"id": "message_id"}),
-                        on="message_id", how="left"
-                    )
-                else:
-                    # Fallback to heuristic if merge keys are missing
-                    artifact_path = None
+    # 1. Always load baseline data from secret_data/ to ensure full coverage
+    users_secret = read_secret_csv("users.csv")
+    sessions_secret = read_secret_csv("sessions.csv")
+    messages_secret = read_secret_csv("whatsapp_messages.csv")
+    feedbacks_secret = read_secret_csv("feedbacks.csv")
 
-            if not artifact_path or messages_secret["sentiment_score"].isna().all():
-                print("    [Fallback] High-quality artifact missing or unusable; falling back to heuristic sentiment.")
-                import re
-                def _heuristic(text: str) -> float:
-                    s = str(text or "").strip().lower()
-                    if not s: return 0.0
-                    tokens = re.findall(r"[a-z']+", s)
-                    if not tokens: return 0.0
-                    pos_hits = sum(1 for t in tokens if t in {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou", "resolved", "perfect", "excellent", "fast", "smooth"})
-                    neg_hits = sum(1 for t in tokens if t in {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"})
-                    raw = (pos_hits - neg_hits) / max(len(tokens), 6)
-                    if "!" in s: raw *= 1.1
-                    if any(w in s for w in ["not good", "not happy", "never again"]): raw -= 0.2
-                    if any(w in s for w in ["not bad", "works now", "all good"]): raw += 0.2
-                    return float(max(min(raw * 2.0, 1.0), -1.0))
-                
-                messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
-                messages_secret["sentiment_confidence"] = 0.5
-                messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
+    if not users_secret.empty:
+        users_secret = align_columns(users_secret, users_cols)
+        if not users_raw.empty:
+            users_raw = normalize_raw_table(users_raw, users_cols)
+            users_raw = pd.concat([users_secret, users_raw]).drop_duplicates(subset=["user_id"], keep="last")
+        else:
+            users_raw = users_secret
             
-            messages_raw = align_columns(messages_secret, messages_cols)
+    if not sessions_secret.empty:
+        sessions_secret = sessions_secret.rename(columns={"id": "session_id"})
+        sessions_secret = align_columns(sessions_secret, sessions_cols)
+        if not sessions_raw.empty:
+            sessions_raw = normalize_raw_table(sessions_raw, sessions_cols)
+            sessions_raw = pd.concat([sessions_secret, sessions_raw]).drop_duplicates(subset=["session_id"], keep="last")
+        else:
+            sessions_raw = sessions_secret
 
+    if not messages_secret.empty:
+        messages_secret = messages_secret.rename(columns={"id": "message_id"})
+        
+        artifact_path = Path("artifacts/sentiment/sentiment_scores.csv")
+        if artifact_path.exists():
+            print(f"    [Baseline] Loading high-quality sentiment from Step 1 artifact: {artifact_path}")
+            scores_df = pd.read_csv(artifact_path)
+            if "id" in scores_df.columns and "message_id" in messages_secret.columns:
+                messages_secret = messages_secret.merge(
+                    scores_df[["id", "sentiment_score", "sentiment_confidence", "sentiment_label"]].rename(columns={"id": "message_id"}),
+                    on="message_id", how="left"
+                )
+            else:
+                artifact_path = None
+
+        if not artifact_path or messages_secret.get("sentiment_score") is None or messages_secret["sentiment_score"].isna().all():
+            print("    [Baseline] High-quality artifact missing or unusable; falling back to heuristic sentiment.")
+            import re
+            def _heuristic(text: str) -> float:
+                s = str(text or "").strip().lower()
+                if not s: return 0.0
+                tokens = re.findall(r"[a-z']+", s)
+                if not tokens: return 0.0
+                pos_hits = sum(1 for t in tokens if t in {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou", "resolved", "perfect", "excellent", "fast", "smooth"})
+                neg_hits = sum(1 for t in tokens if t in {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed", "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed"})
+                raw = (pos_hits - neg_hits) / max(len(tokens), 6)
+                if "!" in s: raw *= 1.1
+                if any(w in s for w in ["not good", "not happy", "never again"]): raw -= 0.2
+                if any(w in s for w in ["not bad", "works now", "all good"]): raw += 0.2
+                return float(max(min(raw * 2.0, 1.0), -1.0))
+            
+            messages_secret["sentiment_score"] = messages_secret["message"].apply(_heuristic)
+            messages_secret["sentiment_confidence"] = 0.5
+            messages_secret["sentiment_label"] = messages_secret["sentiment_score"].apply(lambda x: "positive" if x > 0.1 else ("negative" if x < -0.1 else "neutral"))
+        
+        messages_secret = align_columns(messages_secret, messages_cols)
+        if not messages_raw.empty:
+            messages_raw = normalize_raw_table(messages_raw, messages_cols)
+            messages_raw = pd.concat([messages_secret, messages_raw]).drop_duplicates(subset=["message_id"], keep="last")
+        else:
+            messages_raw = messages_secret
+
+    if not feedbacks_secret.empty:
+        feedbacks_secret = feedbacks_secret.rename(columns={"id": "feedback_id", "source": "feedback_source"})
+        feedbacks_secret = align_columns(feedbacks_secret, feedback_cols)
+        if not feedbacks_raw.empty:
+            feedbacks_raw = normalize_raw_table(feedbacks_raw, feedback_cols)
+            feedbacks_raw = pd.concat([feedbacks_secret, feedbacks_raw]).drop_duplicates(subset=["feedback_id"], keep="last")
+        else:
+            feedbacks_raw = feedbacks_secret
 
     users_raw = normalize_raw_table(users_raw, users_cols)
     sessions_raw = normalize_raw_table(sessions_raw, sessions_cols)

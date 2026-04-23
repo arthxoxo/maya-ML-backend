@@ -319,16 +319,22 @@ def main() -> None:
     edge_u = edge_u.to(device)
     edge_s = edge_s.to(device)
 
-    train_link_prediction(
-        model,
-        user_x,
-        session_x,
-        edge_u,
-        edge_s,
-        n_sessions=session_x.shape[0],
-        epochs=args.epochs,
-        lr=args.lr,
-    )
+    model_path = EMBEDDINGS_ARTIFACT_DIR / "graphsage_model.pt"
+    if model_path.exists():
+        print(f"Loading existing GraphSAGE model from {model_path}")
+        model.load_state_dict(torch.load(model_path, map_location=device))
+    else:
+        train_link_prediction(
+            model,
+            user_x,
+            session_x,
+            edge_u,
+            edge_s,
+            n_sessions=session_x.shape[0],
+            epochs=args.epochs,
+            lr=args.lr,
+        )
+        torch.save(model.state_dict(), model_path)
 
     model.eval()
     with torch.no_grad():
