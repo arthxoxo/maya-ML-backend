@@ -2723,25 +2723,24 @@ def load_whatsapp_sentiment_messages(refresh_nonce: str | None = None) -> pd.Dat
 
     s = repair_flat_sentiment_scores(s, text_col="message", score_col="sentiment_score", label_col="sentiment_label")
 
-    needs_user_backfill = ("user_id" not in s.columns) or s["user_id"].isna().all()
+    needs_user_backfill = ("user_id" not in s.columns) or s["user_id"].isna().any()
     if needs_user_backfill:
         if "session_id" in s.columns and SESSIONS_SOURCE_PATH.exists():
             sess = pd.read_csv(SESSIONS_SOURCE_PATH, usecols=["id", "user_id"])
             sess["id"] = pd.to_numeric(sess["id"], errors="coerce")
-            sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce")
-            s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
+            sess["user_id_from_session"] = pd.to_numeric(sess["user_id"], errors="coerce")
+            s["session_id"] = pd.to_numeric(s.get("session_id"), errors="coerce")
             s = s.merge(
-                sess.rename(columns={"id": "session_id", "user_id": "user_id_from_session"}),
+                sess[["id", "user_id_from_session"]].rename(columns={"id": "session_id"}),
                 on="session_id",
                 how="left",
             )
             if "user_id" in s.columns:
-                s["user_id"] = pd.to_numeric(s["user_id"], errors="coerce")
-                s["user_id"] = s["user_id"].fillna(s.get("user_id_from_session"))
+                s["user_id"] = s["user_id"].fillna(s["user_id_from_session"])
             else:
-                s["user_id"] = pd.to_numeric(s.get("user_id_from_session"), errors="coerce")
+                s["user_id"] = s["user_id_from_session"]
             s = s.drop(columns=["user_id_from_session"], errors="ignore")
-        else:
+        elif "user_id" not in s.columns:
             return pd.DataFrame(columns=cols)
 
     s["user_id"] = pd.to_numeric(s.get("user_id"), errors="coerce")
@@ -3012,16 +3011,22 @@ def main() -> None:
             st.info("No sentiment data found. Ensure sentiment_scores.csv exists with message rows.")
             return
 
-        name_map: Dict[int, str] = {int(uid): f"User ({int(uid)})" for uid in sorted(wa["user_id"].unique().tolist())}
+        name_map: Dict[int, str] = {}
         if not user_directory.empty:
             for _, r in user_directory.iterrows():
                 uid = int(r["user_id"])
-                if uid in name_map:
-                    name_map[uid] = str(r["display_name"])
+                name_map[uid] = str(r["display_name"])
+        
+        # Add any users from wa that might be missing from directory (failsafe)
+        for uid in wa["user_id"].unique():
+            uid_int = int(uid)
+            if uid_int not in name_map:
+                name_map[uid_int] = f"User ({uid_int})"
 
         st.markdown("### Executive Overview")
         c1, c2, c3 = st.columns(3)
-        with c1: executive_card("Total Users Tracked", f"{wa['user_id'].nunique():,}")
+        total_users_count = user_directory["user_id"].nunique() if not user_directory.empty else wa["user_id"].nunique()
+        with c1: executive_card("Total Users Tracked", f"{total_users_count:,}")
         with c2: executive_card("Behavioral Events", f"{len(wa):,}")
         with c3: executive_card("System Sentiment", f"{wa['sentiment_score'].mean():.3f}")
 
@@ -3357,6 +3362,36 @@ def main() -> None:
             fig_mix.update_xaxes(tickformat=".0%")
             style_chart(fig_mix, height=520, x_title="Share of Messages", y_title="User")
             st.plotly_chart(fig_mix, width="stretch")
+
+        st.markdown("### User Sentiment Leaderboard")
+        lleft, lright = st.columns(2)
+        with lleft:
+            st.markdown("#### Top 10 Positive Users")
+            top_pos = per_user[per_user["msg_count"] >= 3].sort_values("avg_sentiment", ascending=False).head(10).copy()
+            if top_pos.empty:
+                st.info("No positive users found with sufficient volume.")
+            else:
+                top_pos["display_sentiment"] = top_pos["avg_sentiment"].map(lambda v: f"{v:+.3f}")
+                st.dataframe(
+                    top_pos[["user", "msg_count", "display_sentiment"]].rename(columns={"display_sentiment": "Avg Sentiment", "msg_count": "Messages"}),
+                    width="stretch",
+                    height=300,
+                    hide_index=True
+                )
+
+        with lright:
+            st.markdown("#### Top 10 Negative Users")
+            top_neg = per_user[per_user["msg_count"] >= 3].sort_values("avg_sentiment", ascending=True).head(10).copy()
+            if top_neg.empty:
+                st.info("No negative users found with sufficient volume.")
+            else:
+                top_neg["display_sentiment"] = top_neg["avg_sentiment"].map(lambda v: f"{v:+.3f}")
+                st.dataframe(
+                    top_neg[["user", "msg_count", "display_sentiment"]].rename(columns={"display_sentiment": "Avg Sentiment", "msg_count": "Messages"}),
+                    width="stretch",
+                    height=300,
+                    hide_index=True
+                )
 
         st.subheader("Per-User Sentiment Trend")
         users = sorted(wa["user_id"].unique().tolist())

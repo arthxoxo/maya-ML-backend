@@ -464,21 +464,30 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
     if "sentiment_label" not in s.columns:
         raise ValueError("Sentiment file must include sentiment_label column")
 
-    if "user_id" not in s.columns:
+    if "user_id" not in s.columns or s["user_id"].isna().any():
         if "session_id" not in s.columns:
-            raise ValueError("Sentiment file needs either user_id or session_id for joining")
-        if not sessions_path.exists():
+            if "user_id" not in s.columns:
+                raise ValueError("Sentiment file needs either user_id or session_id for joining")
+        elif sessions_path.exists():
+            sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
+            sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
+            sessions["user_id_mapped"] = pd.to_numeric(sessions["user_id"], errors="coerce")
+            
+            s["session_id"] = pd.to_numeric(s.get("session_id"), errors="coerce")
+            s = s.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
+            
+            if "user_id" in s.columns:
+                s["user_id"] = s["user_id"].fillna(s["user_id_mapped"])
+                s = s.drop(columns=["user_id_mapped"])
+            else:
+                s["user_id"] = s["user_id_mapped"]
+                s = s.drop(columns=["user_id_mapped"])
+        elif "user_id" not in s.columns:
             raise FileNotFoundError(
                 f"Sentiment file has no user_id; sessions mapping file not found: {sessions_path}"
             )
-        sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
-        sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
-        sessions["user_id"] = pd.to_numeric(sessions["user_id"], errors="coerce")
 
-        s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
-        s = s.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
-
-    s["user_id"] = pd.to_numeric(s["user_id"], errors="coerce")
+    s["user_id"] = pd.to_numeric(s.get("user_id"), errors="coerce")
     s = s.dropna(subset=["user_id"]).copy()
     s["user_id"] = s["user_id"].astype(int)
 
@@ -490,20 +499,26 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
             raise ValueError("No Positive/Negative rows left after filtering sentiment_label")
 
         ss = sentiment.copy()
-        if "user_id" not in ss.columns:
+        if "user_id" not in ss.columns or ss["user_id"].isna().any():
             if "session_id" not in ss.columns:
-                raise ValueError("Sentiment file needs either user_id or session_id for joining")
-            if not sessions_path.exists():
+                if "user_id" not in ss.columns:
+                    raise ValueError("Sentiment file needs either user_id or session_id for joining")
+            elif sessions_path.exists():
+                sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
+                sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
+                sessions["user_id_mapped"] = pd.to_numeric(sessions["user_id"], errors="coerce")
+                ss["session_id"] = pd.to_numeric(ss.get("session_id"), errors="coerce")
+                ss = ss.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
+                if "user_id" in ss.columns:
+                    ss["user_id"] = ss["user_id"].fillna(ss["user_id_mapped"])
+                else:
+                    ss["user_id"] = ss["user_id_mapped"]
+            elif "user_id" not in ss.columns:
                 raise FileNotFoundError(
                     f"Sentiment file has no user_id; sessions mapping file not found: {sessions_path}"
                 )
-            sessions = pd.read_csv(sessions_path, usecols=["id", "user_id"])
-            sessions["id"] = pd.to_numeric(sessions["id"], errors="coerce")
-            sessions["user_id"] = pd.to_numeric(sessions["user_id"], errors="coerce")
-            ss["session_id"] = pd.to_numeric(ss["session_id"], errors="coerce")
-            ss = ss.merge(sessions.rename(columns={"id": "session_id"}), on="session_id", how="left")
 
-        ss["user_id"] = pd.to_numeric(ss["user_id"], errors="coerce")
+        ss["user_id"] = pd.to_numeric(ss.get("user_id"), errors="coerce")
         ss["sentiment_score"] = pd.to_numeric(ss["sentiment_score"], errors="coerce")
         ss = ss.dropna(subset=["user_id", "sentiment_score"]).copy()
         ss = ss[(ss["sentiment_score"] >= 0.05) | (ss["sentiment_score"] <= -0.05)].copy()
@@ -596,8 +611,21 @@ def main() -> None:
         write_empty_xgb_outputs(args, emb, {"warning": warning}, warning)
         return
 
-    data = emb.merge(user_targets, on="user_id", how="inner")
-    if data.empty:
+    # 1. Preprocess the FULL embedding matrix (all users, typically 960+)
+    X_full, prep_stats = preprocess_embedding_matrix(
+        emb[emb_cols],
+        winsor_q_low=args.winsor_q_low,
+        winsor_q_high=args.winsor_q_high,
+        low_variance_threshold=args.low_variance_threshold,
+        corr_drop_threshold=args.corr_drop_threshold,
+    )
+    emb_cols_used = X_full.columns.tolist()
+    if not emb_cols_used:
+        raise ValueError("All embedding dimensions were removed by preprocessing. Relax preprocessing thresholds.")
+
+    # 2. Identify the subset of users who have training targets
+    train_mask = emb["user_id"].isin(user_targets["user_id"])
+    if not train_mask.any():
         warning = (
             "Skipping XGBoost sentiment training because embeddings and resolved sentiment targets did not overlap "
             "on any user_id values."
@@ -605,19 +633,11 @@ def main() -> None:
         write_empty_xgb_outputs(args, emb, target_meta, warning)
         return
 
-    X_raw = data[emb_cols].copy()
-    X, prep_stats = preprocess_embedding_matrix(
-        X_raw,
-        winsor_q_low=args.winsor_q_low,
-        winsor_q_high=args.winsor_q_high,
-        low_variance_threshold=args.low_variance_threshold,
-        corr_drop_threshold=args.corr_drop_threshold,
-    )
-    emb_cols_used = X.columns.tolist()
-    if not emb_cols_used:
-        raise ValueError("All embedding dimensions were removed by preprocessing. Relax preprocessing thresholds.")
-    y = data["target"].astype(int).copy()
-    if len(data) < 2 or y.nunique() < 2:
+    X = X_full[train_mask].copy()
+    # Ensure y is aligned with the filtered X
+    y = emb[train_mask][["user_id"]].merge(user_targets, on="user_id", how="left")["target"].astype(int)
+
+    if len(X) < 2 or y.nunique() < 2:
         warning = (
             "Skipping XGBoost sentiment training because the resolved target set is too small or contains only one "
             "class after joining with embeddings."
@@ -796,7 +816,7 @@ def main() -> None:
     acc = accuracy_score(y_test, pred)
     auc = roc_auc_score(y_test, proba) if y_test.nunique() > 1 else float("nan")
     print(f"[metrics] accuracy={acc:.4f} auc={auc if np.isnan(auc) else round(auc, 4)}")
-    print(f"[data] joined_users={len(data)} train={len(X_train_model)} test={len(X_test)}")
+    print(f"[data] labeled_users={int(train_mask.sum())} train={len(X_train_model)} test={len(X_test)}")
     print(f"[target] source={target_meta.get('target_source','unknown')}")
     if target_meta.get("human_label_column"):
         print(f"[target] human_label_column={target_meta['human_label_column']}")
@@ -818,12 +838,17 @@ def main() -> None:
     save_artifact_df(imp, "xgb_embedding_feature_importance", Path(args.out_importance), index=False)
 
     # Save per-user predictions so dashboard can show concrete model outputs.
-    proba_all = model.predict_proba(X)[:, 1]
+    # Save per-user predictions for ALL users (960+) so the dashboard shows coverage for the entire dataset.
+    proba_all = model.predict_proba(X_full)[:, 1]
     pred_all = (proba_all >= 0.5).astype(int)
+    
+    # Align targets (some will be NaN if the user wasn't in the training set)
+    full_target_alignment = emb[["user_id"]].merge(user_targets, on="user_id", how="left")["target"]
+    
     pred_df = pd.DataFrame(
         {
-            "user_id": data["user_id"].astype(int),
-            "target": y.astype(int),
+            "user_id": emb["user_id"].astype(int),
+            "target": full_target_alignment,
             "pred_label": pred_all.astype(int),
             "pred_prob_positive": proba_all.astype(float),
             "predicted_class": np.where(pred_all == 1, "positive", "negative"),
@@ -847,7 +872,8 @@ def main() -> None:
         "human_label_column": target_meta.get("human_label_column", ""),
         "human_label_rows": target_meta.get("human_label_rows", 0),
         "pseudo_label_rows": target_meta.get("pseudo_label_rows", 0),
-        "joined_users": int(len(data)),
+        "labeled_users": int(train_mask.sum()),
+        "predicted_users": int(len(emb)),
         "train_rows": int(len(X_train_model)),
         "test_rows": int(len(X_test)),
         "train_neg": int(neg),
