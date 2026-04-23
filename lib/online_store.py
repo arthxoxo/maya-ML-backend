@@ -1,12 +1,15 @@
-from __future__ import annotations
-
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
 from app_config import REDIS_PREFIX, REDIS_URL, STORE_TARGET
+
+logger = logging.getLogger(__name__)
+
+MAX_PAYLOAD_SIZE = 2 * 1024 * 1024  # 2 MB limit for Redis payloads
 
 
 def _get_redis_client():
@@ -17,13 +20,15 @@ def _get_redis_client():
     try:
         import redis  # type: ignore
     except Exception:
+        logger.debug("redis-py not installed; skipping Redis connection.")
         return None
 
     try:
         client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
         client.ping()
         return client
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"Failed to connect to Redis at {REDIS_URL}: {exc}")
         return None
 
 
@@ -39,8 +44,8 @@ def load_artifact_df(artifact_key: str, fallback_csv_path: Path, required: bool 
             if payload:
                 rows = json.loads(payload)
                 return pd.DataFrame(rows)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Failed to load artifact '{artifact_key}' from Redis: {exc}")
 
     if fallback_csv_path.exists():
         return pd.read_csv(fallback_csv_path)
@@ -62,10 +67,19 @@ def save_artifact_df(df: pd.DataFrame, artifact_key: str, csv_path: Path, index:
 
     try:
         payload = json.dumps(df.to_dict(orient="records"), ensure_ascii=True)
+        size_bytes = len(payload.encode("utf-8"))
+        
+        if size_bytes > MAX_PAYLOAD_SIZE:
+            logger.warning(
+                f"Redis payload for '{artifact_key}' too large ({size_bytes / 1024 / 1024:.2f} MB > {MAX_PAYLOAD_SIZE / 1024 / 1024:.2f} MB). "
+                "Skipping Redis publish; file output remains authoritative."
+            )
+            return
+
         client.set(_redis_key(artifact_key), payload)
-    except Exception:
+    except Exception as exc:
         # Keep file output authoritative; Redis publish is best effort.
-        pass
+        logger.warning(f"Failed to save artifact '{artifact_key}' to Redis: {exc}")
 
 
 def save_artifact_file(artifact_key: str, file_path: Path) -> None:
@@ -76,5 +90,5 @@ def save_artifact_file(artifact_key: str, file_path: Path) -> None:
     try:
         payload = json.dumps({"path": str(file_path), "exists": True}, ensure_ascii=True)
         client.set(_redis_key(artifact_key), payload)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"Failed to publish file reference '{artifact_key}' to Redis: {exc}")
