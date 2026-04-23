@@ -17,7 +17,7 @@ def _env_path(name: str, default: Path) -> Path:
 
 
 def _has_root_raw_csvs(base: Path) -> bool:
-    required = ["users.csv", "sessions.csv", "feedbacks.csv", "whatsapp_messages.csv"]
+    required = ["users.csv", "sessions.csv", "whatsapp_messages.csv"]
     return all((base / name).exists() for name in required)
 
 

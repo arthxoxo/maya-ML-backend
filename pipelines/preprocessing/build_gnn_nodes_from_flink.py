@@ -150,11 +150,6 @@ def main() -> None:
         if not sessions_secret.empty:
             sessions_secret = sessions_secret.rename(columns={"id": "session_id"})
             sessions_raw = align_columns(sessions_secret, sessions_cols)
-    if feedbacks_raw.empty:
-        feedback_secret = read_secret_csv("feedbacks.csv")
-        if not feedback_secret.empty:
-            feedback_secret = feedback_secret.rename(columns={"id": "feedback_id"})
-            feedbacks_raw = align_columns(feedback_secret, feedback_cols)
     if messages_raw.empty:
         messages_secret = read_secret_csv("whatsapp_messages.csv")
         if not messages_secret.empty:
@@ -300,7 +295,13 @@ def main() -> None:
     else:
         msg["message_id"] = pd.to_numeric(msg["message_id"], errors="coerce").astype("Int64")
         msg["session_id"] = pd.to_numeric(msg["session_id"], errors="coerce").astype("Int64")
-        msg["user_id"] = pd.to_numeric(msg.get("user_id"), errors="coerce").astype("Int64")
+        if "user_id" in msg.columns:
+            user_src = msg["user_id"]
+        elif "sender_user_id" in msg.columns:
+            user_src = msg["sender_user_id"]
+        else:
+            user_src = pd.Series(pd.NA, index=msg.index, dtype="object")
+        msg["user_id"] = pd.to_numeric(user_src, errors="coerce").astype("Int64")
         msg = msg.dropna(subset=["message_id", "session_id"]).drop_duplicates(subset=["message_id"], keep="last")
         msg = msg[msg["session_id"].isin(valid_session_ids)]
         msg["message_id"] = msg["message_id"].astype("int64")

@@ -46,7 +46,6 @@ def main():
     # Map input filenames to their standardized output artifact names
     tasks = [
         ("whatsapp_messages.csv", "sentiment_scores.csv", "message"),
-        ("feedbacks.csv", "feedback_sentiment.csv", "message"),
     ]
 
     pipeline_initialized = False

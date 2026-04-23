@@ -8,7 +8,7 @@ MAIN_PIP  := $(if $(wildcard main_venv/Scripts/pip.exe),./main_venv/Scripts/pip.
 # Tool paths
 PYENV ?= pyenv
 
-.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check setup-dev empty-secret-data reset-data pipeline docker-pipeline
+.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check empty-secret-data pipeline docker-pipeline ingestor-sync pipeline-from-db
 
 setup: setup-all
 
@@ -44,12 +44,19 @@ start-all:
 pipeline:
 	PYTHONPATH=. $(MAIN_PY) run_pipeline.py $(FLAGS)
 
+ingestor-sync:
+	@echo "[ingestor-sync] Triggering sync via $(INGESTOR_URL)/sync"
+	@INGESTOR_URL="$(INGESTOR_URL)" $(MAIN_PY) -c "import json,os,sys,time,urllib.request; base=os.environ['INGESTOR_URL'].rstrip('/'); req=lambda p,m='GET': json.loads(urllib.request.urlopen(urllib.request.Request(base+p, method=m), timeout=10).read().decode() or '{}'); req('/sync','POST'); print('[ingestor-sync] Sync started; waiting for completion...'); code='deadline=time.time()+300\\nwhile True:\\n    status=req(\\'/status\\')\\n    if not status.get(\\'is_running\\', False):\\n        result=str(status.get(\\'last_result\\', \\'Unknown\\'))\\n        print(f\"[ingestor-sync] Completed with status: {result}\")\\n        sys.exit(0 if result.startswith(\\'Success\\') or result.startswith(\\'Partial Success\\') else 2)\\n    if time.time() > deadline:\\n        print(\\'[ingestor-sync] Timed out after 5 minutes waiting for /status\\')\\n        sys.exit(3)\\n    time.sleep(2)'; exec(code)"
+
+pipeline-from-db: ingestor-sync
+	PYTHONPATH=. $(MAIN_PY) run_pipeline.py $(FLAGS)
+
 docker-pipeline:
 	docker compose exec maya-app /app/main_venv/bin/python run_pipeline.py $(FLAGS)
 
 # Legacy support / utility targets
 PREFIX ?= maya:dashboard
-SEED_DIR ?= data/seeds
+INGESTOR_URL ?= http://localhost:8000
 SECRET_DIR ?= secret_data
 
 redis-publish:
@@ -57,18 +64,6 @@ redis-publish:
 
 redis-check:
 	$(MAIN_PY) -m apps.tools.check_redis_publish --prefix $(PREFIX)
-
-setup-dev:
-	@mkdir -p $(SECRET_DIR)
-	@if [ -z "$$(find $(SECRET_DIR) -mindepth 1 -maxdepth 1 -type f | head -n 1)" ]; then \
-		echo "[setup-dev] $(SECRET_DIR) is empty. Seeding samples..."; \
-		cp $(SEED_DIR)/*.csv $(SECRET_DIR)/; \
-	fi
-
-reset-data:
-	@mkdir -p $(SECRET_DIR)
-	@find $(SECRET_DIR) -mindepth 1 -maxdepth 1 -type f -delete
-	@cp $(SEED_DIR)/*.csv $(SECRET_DIR)/
 
 empty-secret-data:
 	@mkdir -p $(SECRET_DIR)

@@ -81,12 +81,20 @@ def build_user_table(users: pd.DataFrame, sessions: pd.DataFrame, messages: pd.D
     )
 
     session_user = sessions[["session_id", "user_id"]].drop_duplicates()
-    messages = messages.merge(session_user, on="session_id", how="left")
+    messages = messages.merge(session_user, on="session_id", how="left", suffixes=("", "_from_session"))
+    if "user_id_from_session" in messages.columns:
+        if "user_id" in messages.columns:
+            messages["user_id"] = messages["user_id"].fillna(messages["user_id_from_session"])
+        else:
+            messages["user_id"] = messages["user_id_from_session"]
+        messages = messages.drop(columns=["user_id_from_session"], errors="ignore")
     messages["message_word_len"] = pd.to_numeric(messages["message_word_len"], errors="coerce").fillna(0)
     messages["message_char_len"] = pd.to_numeric(messages["message_char_len"], errors="coerce").fillna(0)
     messages["input_tokens"] = pd.to_numeric(messages["input_tokens"], errors="coerce").fillna(0)
     messages["output_tokens"] = pd.to_numeric(messages["output_tokens"], errors="coerce").fillna(0)
     messages["cost_usd"] = pd.to_numeric(messages["cost_usd"], errors="coerce").fillna(0)
+    messages["user_id"] = pd.to_numeric(messages.get("user_id"), errors="coerce").astype("Int64")
+    messages = messages.dropna(subset=["user_id"])
     messages_agg = messages.groupby("user_id", as_index=False).agg(
         message_count=("message_id", "count"),
         msg_word_len_mean=("message_word_len", "mean"),
@@ -96,13 +104,21 @@ def build_user_table(users: pd.DataFrame, sessions: pd.DataFrame, messages: pd.D
         cost_usd_sum=("cost_usd", "sum"),
     )
 
+    for c in ["feedback_id", "user_id", "feedback_word_len", "feedback_char_len"]:
+        if c not in feedback.columns:
+            feedback[c] = pd.NA
+    feedback["user_id"] = pd.to_numeric(feedback["user_id"], errors="coerce").astype("Int64")
+    feedback = feedback.dropna(subset=["user_id"])
     feedback["feedback_word_len"] = pd.to_numeric(feedback["feedback_word_len"], errors="coerce").fillna(0)
     feedback["feedback_char_len"] = pd.to_numeric(feedback["feedback_char_len"], errors="coerce").fillna(0)
-    feedback_agg = feedback.groupby("user_id", as_index=False).agg(
-        feedback_count=("feedback_id", "count"),
-        feedback_word_len_mean=("feedback_word_len", "mean"),
-        feedback_char_len_mean=("feedback_char_len", "mean"),
-    )
+    if feedback.empty:
+        feedback_agg = pd.DataFrame(columns=["user_id", "feedback_count", "feedback_word_len_mean", "feedback_char_len_mean"])
+    else:
+        feedback_agg = feedback.groupby("user_id", as_index=False).agg(
+            feedback_count=("feedback_id", "count"),
+            feedback_word_len_mean=("feedback_word_len", "mean"),
+            feedback_char_len_mean=("feedback_char_len", "mean"),
+        )
 
     out = users.merge(sessions_agg, on="user_id", how="left")
     out = out.merge(messages_agg, on="user_id", how="left")
@@ -230,6 +246,8 @@ def build_embedding_dimension_labels(
 
 
 def aggregate_to_target(src_emb: torch.Tensor, target_index: torch.Tensor, target_size: int) -> torch.Tensor:
+    if src_emb.shape[0] == 0 or target_index.numel() == 0:
+        return torch.zeros((target_size, src_emb.shape[1]), device=src_emb.device)
     out = torch.zeros((target_size, src_emb.shape[1]), device=src_emb.device)
     counts = torch.zeros((target_size, 1), device=src_emb.device)
     out.index_add_(0, target_index, src_emb)
@@ -380,6 +398,9 @@ def main() -> None:
         messages_basic[c] = pd.to_numeric(messages_basic[c], errors="coerce").fillna(0)
     messages_x = messages_basic[["message_word_len", "message_char_len", "input_tokens", "output_tokens", "cost_usd"]].astype(np.float32)
 
+    for c in ["feedback_id", "user_id", "feedback_word_len", "feedback_char_len"]:
+        if c not in feedback.columns:
+            feedback[c] = pd.NA
     feedback_basic = feedback[["feedback_id", "user_id", "feedback_word_len", "feedback_char_len"]].copy()
     feedback_basic[["feedback_word_len", "feedback_char_len"]] = feedback_basic[["feedback_word_len", "feedback_char_len"]].apply(pd.to_numeric, errors="coerce").fillna(0)
     feedback_x = feedback_basic[["feedback_word_len", "feedback_char_len"]].astype(np.float32)

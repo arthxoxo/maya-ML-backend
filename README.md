@@ -128,7 +128,6 @@ Outputs:
 python -m pipelines.training.train_xgb_shap_sentiment \
 	--embeddings user_embeddings.csv \
 	--sentiment sentiment_scores.csv \
-	--feedback secret_data/feedbacks.csv
 ```
 
 By default, this step prefers human-supervised labels from feedback data.

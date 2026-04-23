@@ -24,6 +24,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # In Docker/CI environments, env vars are often injected externally.
+    pass
+
 
 def preflight_secret_data_check() -> None:
     repo_root = Path(__file__).resolve().parent
@@ -31,13 +38,12 @@ def preflight_secret_data_check() -> None:
     required_files = [
         "maya_users.csv",
         "maya_sessions.csv",
-        "maya_feedbacks.csv",
         "maya_whatsapp_messages.csv",
     ]
 
     if not secret_dir.exists() or not any(secret_dir.iterdir()):
         print("[WARN] secret_data/ is missing or empty.")
-        print("[WARN] Run `make setup-dev` to initialize schema-validation seed files.")
+        print("[WARN] Run ingestor sync first: `make ingestor-sync`.")
         return
 
     # Support both 'maya_sessions.csv' and 'sessions.csv'
@@ -57,14 +63,14 @@ def preflight_secret_data_check() -> None:
                     rows = max(sum(1 for _ in f) - 1, 0)
                     row_counts.append(rows)
                     if rows <= 2:
-                        print(f"[WARN] Detected tiny seed CSV: {target.name}")
+                        print(f"[WARN] Detected very small CSV: {target.name}")
             except Exception:
                 pass
 
     if not found_any:
         print("[WARN] None of the required CSVs were found in secret_data/.")
     elif row_counts and max(row_counts) <= 2:
-        print("[WARN] All detected CSVs appear to be tiny seed files. Replace with real data for meaningful results.")
+        print("[WARN] All detected CSVs are very small. Confirm ingestion completed successfully.")
 
 
 @dataclass(frozen=True)
@@ -75,12 +81,33 @@ class Step:
     optional: bool = False
 
 
-def build_steps(include_redis_publish: bool) -> list[Step]:
+def build_steps(include_redis_publish: bool, include_kafka_publish: bool) -> list[Step]:
     py = sys.executable
-    steps = [
+    steps: list[Step] = []
+
+    if include_kafka_publish:
+        kafka_broker = os.getenv("KAFKA_BROKER", "localhost:9092").strip() or "localhost:9092"
+        row_delay = os.getenv("MAYA_KAFKA_ROW_DELAY", "0.0").strip() or "0.0"
+        steps.append(
+            Step(
+                id="publish_raw_csv_to_kafka",
+                description="Publish raw CSVs to Kafka topics (users/sessions/whatsapp_messages)",
+                cmd=[
+                    py,
+                    "-m",
+                    "pipelines.ingestion.kafka_csv_producer",
+                    "--broker",
+                    kafka_broker,
+                    "--delay",
+                    row_delay,
+                ],
+            )
+        )
+
+    steps.extend([
         Step(
             id="bulk_sentiment_preprocessing",
-            description="Run high-quality RoBERTa sentiment analysis on raw WhatsApp messages & feedbacks → artifacts/sentiment/",
+            description="Run high-quality RoBERTa sentiment analysis on raw WhatsApp messages → artifacts/sentiment/",
             cmd=[py, "-m", "pipelines.preprocessing.bulk_sentiment_processor"],
         ),
         Step(
@@ -118,7 +145,7 @@ def build_steps(include_redis_publish: bool) -> list[Step]:
             description="Train GRU mood swing model from WhatsApp message sequences",
             cmd=[py, "-m", "pipelines.training.train_whatsapp_gru_mood_swings"],
         ),
-    ]
+    ])
 
     if include_redis_publish:
         redis_url = os.getenv("REDIS_URL", "").strip()
@@ -178,6 +205,16 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run ordered Maya ML pipeline stages.")
     p.add_argument("--dry-run", action="store_true", help="Print steps without executing.")
     p.add_argument(
+        "--include-kafka-publish",
+        action="store_true",
+        help="Prepend Kafka publish step (also auto-enabled by default unless disabled).",
+    )
+    p.add_argument(
+        "--no-kafka-publish",
+        action="store_true",
+        help="Disable Kafka publish step.",
+    )
+    p.add_argument(
         "--include-redis-publish",
         action="store_true",
         help="Append Redis publish as final step (also auto-enabled when REDIS_URL is set).",
@@ -200,9 +237,14 @@ def main() -> None:
 
     preflight_secret_data_check()
     redis_url = os.getenv("REDIS_URL", "").strip()
+    auto_include_kafka = not bool(args.no_kafka_publish)
+    include_kafka_publish = bool(args.include_kafka_publish) or auto_include_kafka
     auto_include = bool(redis_url) and not bool(args.no_redis_publish)
     include_redis_publish = bool(args.include_redis_publish) or auto_include
-    steps = build_steps(include_redis_publish=include_redis_publish)
+    steps = build_steps(
+        include_redis_publish=include_redis_publish,
+        include_kafka_publish=include_kafka_publish,
+    )
     steps = slice_steps(steps, start_from=args.start_from, stop_after=args.stop_after)
     exit_code = run(steps, dry_run=bool(args.dry_run))
     raise SystemExit(exit_code)

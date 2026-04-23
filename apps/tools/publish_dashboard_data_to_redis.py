@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -81,6 +82,9 @@ def main() -> None:
             if args.strict:
                 raise FileNotFoundError(msg)
             print(msg)
+
+    # Metadata key used by the dashboard to display freshness.
+    client.set(f"{args.prefix}:last_published_at", datetime.now(timezone.utc).isoformat())
 
     print(f"[done] published={published} skipped={skipped} total_rows={total_rows}")
 

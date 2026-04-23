@@ -30,6 +30,7 @@ services:
       - MAYA_SECRET_DATA_DIR=/app/secret_data
     volumes:
       - .:/app
+      - /app/main_venv/
       - ./secret_data:/app/secret_data
     extra_hosts:
       - "host.docker.internal:host-gateway"

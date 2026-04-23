@@ -1,12 +1,12 @@
 """
 Feature Engineering Pipeline — Per-User Behavioral Feature Matrix
 
-Reads all 4 CSVs and builds ~50 engineered features per user across:
+Reads core CSVs and builds engineered features per user across:
   A. Message behavior (from whatsapp_messages)
   B. Temporal patterns
   C. Sentiment trajectory
   D. Session engagement
-  E. Feedback signals
+    E. NLP complexity
 
 Output: user_feature_matrix.csv — one row per user, ready for ML.
 
@@ -60,7 +60,7 @@ def _find_csv(folder: Path, name: str) -> Path:
 
 
 def load_data():
-    """Load all CSVs with proper date parsing."""
+    """Load core CSVs with proper date parsing."""
     print("📂  Loading CSVs...")
 
     users = pd.read_csv(_find_csv(DATA_DIR, "users.csv"))
@@ -72,15 +72,11 @@ def load_data():
     sessions = pd.read_csv(_find_csv(DATA_DIR, "sessions.csv"))
     sessions["created_at"] = pd.to_datetime(sessions["created_at"], format="mixed", utc=True, errors="coerce")
 
-    feedbacks = pd.read_csv(_find_csv(DATA_DIR, "feedbacks.csv"))
-    feedbacks["created_at"] = pd.to_datetime(feedbacks["created_at"], format="mixed", utc=True, errors="coerce")
-
     print(f"    Users:    {len(users):>7,}")
     print(f"    Messages: {len(messages):>7,}")
     print(f"    Sessions: {len(sessions):>7,}")
-    print(f"    Feedback: {len(feedbacks):>7,}")
 
-    return users, messages, sessions, feedbacks
+    return users, messages, sessions
 
 
 # ── Helper: Sentiment ────────────────────────────────────────────────────────
@@ -238,10 +234,25 @@ def map_messages_to_users(messages, sessions):
     if "user_id" in messages.columns and messages["user_id"].isna().all():
         messages = messages.drop(columns=["user_id"])
 
-    # If user_id already exists and is mostly populated, we preserve it.
+    # If user_id is present but partially missing, backfill from sessions.
     if "user_id" in messages.columns and messages["user_id"].notna().any():
-        print(f"    [Standardized] Messages already contain user_id. Preserving {messages['user_id'].notna().sum():,} mappings.")
-        return messages
+        session_user_map = sessions[["id", "user_id"]].drop_duplicates()
+        session_user_map = session_user_map.rename(columns={"id": "session_id"})
+
+        before = int(messages["user_id"].notna().sum())
+        merged = messages.merge(
+            session_user_map,
+            on="session_id",
+            how="left",
+            suffixes=("", "_from_session"),
+        )
+        if "user_id_from_session" in merged.columns:
+            merged["user_id"] = merged["user_id"].fillna(merged["user_id_from_session"])
+            merged = merged.drop(columns=["user_id_from_session"], errors="ignore")
+        after = int(merged["user_id"].notna().sum()) if "user_id" in merged.columns else 0
+        print(f"    [Standardized] Messages already contain user_id. Preserving {before:,} mappings.")
+        print(f"    [Backfill] Messages mapped to users after session join: {after:,} / {len(merged):,}")
+        return merged
 
     session_user_map = sessions[["id", "user_id"]].drop_duplicates()
     session_user_map = session_user_map.rename(columns={"id": "session_id"})
@@ -554,41 +565,7 @@ def build_session_features(sessions):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FEATURE GROUP E: Feedback Features
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-def build_feedback_features(feedbacks):
-    """Per-user feedback-derived features."""
-    print("🔧  Building feedback features...")
-
-    # Try to load precomputed feedback sentiment first
-    feedbacks = load_precomputed_sentiment(feedbacks, "feedback_sentiment.csv")
-
-    if feedbacks["sentiment"].isna().any():
-        print("    [Feedback] Computing fallback sentiment for missing feedback scores...")
-        feedback_texts = feedbacks.loc[feedbacks["sentiment"].isna(), "message"].fillna("").astype(str).tolist()
-        feedback_polarity, _ = score_texts_sentiment(feedback_texts)
-        feedbacks.loc[feedbacks["sentiment"].isna(), "sentiment"] = feedback_polarity
-
-    feats = []
-    for uid, grp in feedbacks.groupby("user_id"):
-        feat = {
-            "user_id": uid,
-            "feedback_count": len(grp),
-            "feedback_avg_sentiment": grp["sentiment"].mean(),
-            "feedback_min_sentiment": grp["sentiment"].min(),
-            "has_negative_feedback": int((grp["sentiment"] < -0.05).any()),
-        }
-        feats.append(feat)
-
-    result = pd.DataFrame(feats)
-    print(f"    ✅ {len(result.columns) - 1} feedback features built")
-    return result
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FEATURE GROUP F: NLP Complexity Features
+# FEATURE GROUP E: NLP Complexity Features
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -648,7 +625,7 @@ def main():
     print("=" * 60)
 
     # ── Load ─────────────────────────────────────────────────────────────
-    users, messages, sessions, feedbacks = load_data()
+    users, messages, sessions = load_data()
 
     # ── Map messages to users ────────────────────────────────────────────
     messages = map_messages_to_users(messages, sessions)
@@ -658,7 +635,6 @@ def main():
     temporal_features = build_temporal_features(messages)
     sentiment_features = build_sentiment_features(messages)
     session_features = build_session_features(sessions)
-    feedback_features = build_feedback_features(feedbacks)
     nlp_features = build_nlp_features(messages)
 
     # ── Merge into single user-level matrix ──────────────────────────────
@@ -671,30 +647,41 @@ def main():
     ).str.strip()
 
     # Merge all feature groups
-    for df in [msg_features, temporal_features, sentiment_features,
-               session_features, feedback_features, nlp_features]:
+    for df in [msg_features, temporal_features, sentiment_features, session_features, nlp_features]:
+        if "user_id" not in df.columns:
+            continue
         feature_matrix = feature_matrix.merge(df, on="user_id", how="left")
 
     # ── Derived composite scores ─────────────────────────────────────────
     print("🔧  Computing composite scores...")
 
     # Engagement Score (normalized 0-1)
+    engagement_components = []
+    component_weights = []
     if "total_messages_sent" in feature_matrix.columns:
-        msgs_norm = feature_matrix["total_messages_sent"].rank(pct=True)
-        sessions_norm = feature_matrix["total_sessions"].rank(pct=True)
-        active_days_norm = feature_matrix["active_days_count"].rank(pct=True)
-        feature_matrix["engagement_score"] = (
-            (msgs_norm * 0.4 + sessions_norm * 0.3 + active_days_norm * 0.3)
-        ).round(4)
+        engagement_components.append(feature_matrix["total_messages_sent"].rank(pct=True))
+        component_weights.append(0.4)
+    if "total_sessions" in feature_matrix.columns:
+        engagement_components.append(feature_matrix["total_sessions"].rank(pct=True))
+        component_weights.append(0.3)
+    if "active_days_count" in feature_matrix.columns:
+        engagement_components.append(feature_matrix["active_days_count"].rank(pct=True))
+        component_weights.append(0.3)
 
-    # Satisfaction Proxy (from sentiment + feedback)
-    feature_matrix["satisfaction_proxy"] = feature_matrix["avg_sentiment"].fillna(0)
-    if "feedback_avg_sentiment" in feature_matrix.columns:
-        has_fb = feature_matrix["feedback_avg_sentiment"].notna()
-        feature_matrix.loc[has_fb, "satisfaction_proxy"] = (
-            feature_matrix.loc[has_fb, "avg_sentiment"].fillna(0) * 0.6
-            + feature_matrix.loc[has_fb, "feedback_avg_sentiment"] * 0.4
-        )
+    if engagement_components:
+        w_sum = float(sum(component_weights))
+        score = 0.0
+        for comp, w in zip(engagement_components, component_weights):
+            score = score + comp * (w / w_sum)
+        feature_matrix["engagement_score"] = pd.Series(score).fillna(0).round(4)
+    else:
+        feature_matrix["engagement_score"] = 0.0
+
+    # Satisfaction proxy from conversation sentiment only.
+    if "avg_sentiment" in feature_matrix.columns:
+        feature_matrix["satisfaction_proxy"] = feature_matrix["avg_sentiment"].fillna(0)
+    else:
+        feature_matrix["satisfaction_proxy"] = 0.0
 
     # ── Fill NaN for users with no data ──────────────────────────────────
     numeric_cols = feature_matrix.select_dtypes(include=[np.number]).columns
@@ -711,13 +698,16 @@ def main():
 
     # ── Summary ──────────────────────────────────────────────────────────
     print("\n📊  Feature Groups Summary:")
+
+    def _group_feature_cols(df: pd.DataFrame) -> list[str]:
+        return [c for c in df.columns if c != "user_id"]
+
     groups = {
-        "Message Behavior": msg_features.columns.drop("user_id").tolist(),
-        "Temporal Patterns": temporal_features.columns.drop("user_id").tolist(),
-        "Sentiment": sentiment_features.columns.drop("user_id").tolist(),
-        "Session Engagement": session_features.columns.drop("user_id").tolist(),
-        "Feedback": feedback_features.columns.drop("user_id").tolist(),
-        "NLP Complexity": nlp_features.columns.drop("user_id").tolist(),
+        "Message Behavior": _group_feature_cols(msg_features),
+        "Temporal Patterns": _group_feature_cols(temporal_features),
+        "Sentiment": _group_feature_cols(sentiment_features),
+        "Session Engagement": _group_feature_cols(session_features),
+        "NLP Complexity": _group_feature_cols(nlp_features),
         "Composite": ["engagement_score", "satisfaction_proxy"],
     }
     total = 0
@@ -729,9 +719,11 @@ def main():
 
     # Preview top engaged users
     print("\n🏆  Top 5 Users by Engagement Score:")
-    top = feature_matrix.nlargest(5, "engagement_score")[
-        ["user_name", "total_messages_sent", "total_sessions", "avg_sentiment", "engagement_score"]
-    ]
+    preview_cols = ["user_name", "engagement_score"]
+    for c in ["total_messages_sent", "total_sessions", "avg_sentiment"]:
+        if c in feature_matrix.columns:
+            preview_cols.append(c)
+    top = feature_matrix.nlargest(5, "engagement_score")[preview_cols]
     print(top.to_string(index=False))
 
     return feature_matrix

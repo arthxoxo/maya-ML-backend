@@ -18,6 +18,7 @@ import os
 import json
 import subprocess
 import sys
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -695,8 +696,64 @@ def load_df_from_redis(key: str, expected_cols: list[str] | None = None) -> pd.D
     return df
 
 
+def get_dashboard_last_updated_label() -> str:
+    client = get_redis_client()
+    if client is not None:
+        try:
+            payload = client.get(f"{REDIS_KEY_PREFIX}:last_published_at")
+            if payload:
+                ts = pd.to_datetime(payload, utc=True, errors="coerce")
+                if pd.notna(ts):
+                    local_ts = ts.tz_convert("Asia/Kolkata")
+                    return local_ts.strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            pass
+
+    tracked_files = [
+        OUTPUT_DIR / "user_behaviour_scores.csv",
+        OUTPUT_DIR / "user_feature_importance_global.csv",
+        OUTPUT_DIR / "user_feature_importance_per_user.csv",
+        USER_EMBEDDINGS_PATH,
+        XGB_PREDICTIONS_PATH,
+        PERSONA_TABLE_PATH,
+        SENTIMENT_SCORES_PATH,
+        GRU_MOOD_SWING_SUMMARY_PATH,
+    ]
+    existing = [p for p in tracked_files if p.exists()]
+    if not existing:
+        return "Unavailable"
+
+    latest = max(existing, key=lambda p: p.stat().st_mtime)
+    dt = datetime.fromtimestamp(latest.stat().st_mtime)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_data_refresh_nonce() -> str:
+    client = get_redis_client()
+    if client is not None:
+        try:
+            payload = client.get(f"{REDIS_KEY_PREFIX}:last_published_at")
+            if payload:
+                return str(payload)
+        except Exception:
+            pass
+
+    tracked_files = [
+        OUTPUT_DIR / "user_behaviour_scores.csv",
+        OUTPUT_DIR / "user_feature_importance_global.csv",
+        OUTPUT_DIR / "user_feature_importance_per_user.csv",
+        SENTIMENT_SCORES_PATH,
+    ]
+    existing = [p for p in tracked_files if p.exists()]
+    if not existing:
+        return "no-data"
+    latest = max(existing, key=lambda p: p.stat().st_mtime)
+    return str(int(latest.stat().st_mtime))
+
+
 @st.cache_data(show_spinner=False)
-def load_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_outputs(refresh_nonce: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    _ = refresh_nonce
     scores_r = load_df_from_redis("user_behaviour_scores", expected_cols=["user_id", "engagement_score", "pred_high_engagement_prob"])
     global_r = load_df_from_redis("user_feature_importance_global", expected_cols=["feature", "importance"])
     per_user_r = load_df_from_redis("user_feature_importance_per_user", expected_cols=["user_id", "rank", "feature", "importance"])
@@ -1486,7 +1543,8 @@ def enforce_cardiff_sentiment(
 
 
 @st.cache_data(show_spinner=False)
-def load_sentiment_table() -> pd.DataFrame:
+def load_sentiment_table(refresh_nonce: str | None = None) -> pd.DataFrame:
+    _ = refresh_nonce
     # Fast path: if precomputed sentiment artifact exists, use it to avoid expensive re-inference on page load.
     if SENTIMENT_SCORES_PATH.exists():
         try:
@@ -1499,13 +1557,24 @@ def load_sentiment_table() -> pd.DataFrame:
                         score_col="sentiment_score",
                         label_col="sentiment_label",
                     )
-                if "user_id" not in cached.columns:
+                needs_user_backfill = ("user_id" not in cached.columns) or cached["user_id"].isna().all()
+                if needs_user_backfill:
                     if "session_id" in cached.columns and SESSIONS_SOURCE_PATH.exists():
                         sess_df = pd.read_csv(SESSIONS_SOURCE_PATH, usecols=["id", "user_id"])
                         sess_df["id"] = pd.to_numeric(sess_df["id"], errors="coerce")
                         sess_df["user_id"] = pd.to_numeric(sess_df["user_id"], errors="coerce")
                         cached["session_id"] = pd.to_numeric(cached["session_id"], errors="coerce")
-                        cached = cached.merge(sess_df.rename(columns={"id": "session_id"}), on="session_id", how="left")
+                        cached = cached.merge(
+                            sess_df.rename(columns={"id": "session_id", "user_id": "user_id_from_session"}),
+                            on="session_id",
+                            how="left",
+                        )
+                        if "user_id" in cached.columns:
+                            cached["user_id"] = pd.to_numeric(cached["user_id"], errors="coerce")
+                            cached["user_id"] = cached["user_id"].fillna(cached.get("user_id_from_session"))
+                        else:
+                            cached["user_id"] = pd.to_numeric(cached.get("user_id_from_session"), errors="coerce")
+                        cached = cached.drop(columns=["user_id_from_session"], errors="ignore")
 
                 if "user_id" in cached.columns:
                     cached["user_id"] = pd.to_numeric(cached["user_id"], errors="coerce")
@@ -2114,7 +2183,7 @@ def build_rag_roadmap_signals(sentiment_df: pd.DataFrame, recent_days: int = 30,
 
 @st.cache_data(show_spinner=False)
 def build_user_snapshot(user_id: int, refresh_nonce: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    sentiment_df = load_sentiment_table()
+    sentiment_df = load_sentiment_table(str(refresh_nonce))
     user_sent = sentiment_df[sentiment_df["user_id"] == user_id].copy()
     task_imp = build_task_importance(sentiment_df, user_id=user_id, top_k=15)
     return user_sent, task_imp
@@ -2547,13 +2616,24 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 
     s = repair_flat_sentiment_scores(s, text_col="message", score_col="sentiment_score", label_col="sentiment_label")
 
-    if "user_id" not in s.columns:
+    needs_user_backfill = ("user_id" not in s.columns) or s["user_id"].isna().all()
+    if needs_user_backfill:
         if "session_id" in s.columns and SESSIONS_SOURCE_PATH.exists():
             sess = pd.read_csv(SESSIONS_SOURCE_PATH, usecols=["id", "user_id"])
             sess["id"] = pd.to_numeric(sess["id"], errors="coerce")
             sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce")
             s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
-            s = s.merge(sess.rename(columns={"id": "session_id"}), on="session_id", how="left")
+            s = s.merge(
+                sess.rename(columns={"id": "session_id", "user_id": "user_id_from_session"}),
+                on="session_id",
+                how="left",
+            )
+            if "user_id" in s.columns:
+                s["user_id"] = pd.to_numeric(s["user_id"], errors="coerce")
+                s["user_id"] = s["user_id"].fillna(s.get("user_id_from_session"))
+            else:
+                s["user_id"] = pd.to_numeric(s.get("user_id_from_session"), errors="coerce")
+            s = s.drop(columns=["user_id_from_session"], errors="ignore")
         else:
             return pd.DataFrame(columns=cols)
 
@@ -2609,7 +2689,8 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_whatsapp_sentiment_messages() -> pd.DataFrame:
+def load_whatsapp_sentiment_messages(refresh_nonce: str | None = None) -> pd.DataFrame:
+    _ = refresh_nonce
     cols = [
         "user_id",
         "message",
@@ -2642,13 +2723,24 @@ def load_whatsapp_sentiment_messages() -> pd.DataFrame:
 
     s = repair_flat_sentiment_scores(s, text_col="message", score_col="sentiment_score", label_col="sentiment_label")
 
-    if "user_id" not in s.columns:
+    needs_user_backfill = ("user_id" not in s.columns) or s["user_id"].isna().all()
+    if needs_user_backfill:
         if "session_id" in s.columns and SESSIONS_SOURCE_PATH.exists():
             sess = pd.read_csv(SESSIONS_SOURCE_PATH, usecols=["id", "user_id"])
             sess["id"] = pd.to_numeric(sess["id"], errors="coerce")
             sess["user_id"] = pd.to_numeric(sess["user_id"], errors="coerce")
             s["session_id"] = pd.to_numeric(s["session_id"], errors="coerce")
-            s = s.merge(sess.rename(columns={"id": "session_id"}), on="session_id", how="left")
+            s = s.merge(
+                sess.rename(columns={"id": "session_id", "user_id": "user_id_from_session"}),
+                on="session_id",
+                how="left",
+            )
+            if "user_id" in s.columns:
+                s["user_id"] = pd.to_numeric(s["user_id"], errors="coerce")
+                s["user_id"] = s["user_id"].fillna(s.get("user_id_from_session"))
+            else:
+                s["user_id"] = pd.to_numeric(s.get("user_id_from_session"), errors="coerce")
+            s = s.drop(columns=["user_id_from_session"], errors="ignore")
         else:
             return pd.DataFrame(columns=cols)
 
@@ -2759,7 +2851,7 @@ def pipeline_steps_for_ui() -> list[dict[str, str]]:
     try:
         from run_pipeline import build_steps  # lazy import to avoid hard dependency during module import
 
-        steps = build_steps(include_redis_publish=False)
+        steps = build_steps(include_redis_publish=False, include_kafka_publish=True)
         return [
             {
                 "step_id": s.id,
@@ -2772,6 +2864,7 @@ def pipeline_steps_for_ui() -> list[dict[str, str]]:
         # Fallback list if orchestrator import is unavailable for any reason.
         py = sys.executable
         return [
+            {"step_id": "publish_raw_csv_to_kafka", "description": "Publish raw CSV data to Kafka topics", "command": f"{py} -m pipelines.ingestion.kafka_csv_producer --broker localhost:9092 --delay 0.0"},
             {"step_id": "feature_engineering", "description": "Build user-level engineered feature matrix", "command": f"{py} -m pipelines.preprocessing.feature_engineering"},
             {"step_id": "train_graphsage_user_embeddings", "description": "Train GraphSAGE embeddings", "command": f"{py} -m pipelines.training.train_graphsage_user_embeddings"},
             {"step_id": "build_gnn_nodes_from_flink", "description": "Build GNN node tables from Flink outputs", "command": f"{py} -m pipelines.preprocessing.build_gnn_nodes_from_flink"},
@@ -2878,9 +2971,11 @@ def maybe_run_pipeline_automatically() -> None:
 def main() -> None:
     style_app()
     maybe_run_pipeline_automatically()
+    refresh_nonce = get_data_refresh_nonce()
 
     st.title("User Behavior Intelligence Dashboard")
     st.caption("User-level feature importance and sentiment insights from your trained GNN outputs.")
+    st.caption(f"Last Updated: {get_dashboard_last_updated_label()}")
 
     page = st.sidebar.radio(
         "Page",
@@ -2910,7 +3005,7 @@ def main() -> None:
         st.rerun()
 
     if page in {"Global Sentiment Analysis", "Per-User Sentiment Analysis"}:
-        wa = load_whatsapp_sentiment_messages()
+        wa = load_whatsapp_sentiment_messages(refresh_nonce)
         user_directory = load_user_directory()
 
         if wa.empty:
@@ -3358,7 +3453,7 @@ def main() -> None:
         return
 
     if page == "RAG Roadmap Signals":
-        sentiment_df = load_sentiment_table()
+        sentiment_df = load_sentiment_table(refresh_nonce)
         roadmap = build_rag_roadmap_signals(sentiment_df, recent_days=30, top_k=14)
         st.subheader("RAG Roadmap Signals")
         st.caption("Prioritize capabilities with strong demand, rising trend, and higher dissatisfaction.")
@@ -3753,9 +3848,9 @@ def main() -> None:
             st.dataframe(u_df.head(20), width="stretch", height=320)
         return
 
-    scores, global_imp, per_user_imp = load_outputs()
+    scores, global_imp, per_user_imp = load_outputs(refresh_nonce)
     user_directory = load_user_directory()
-    sentiment_df = load_sentiment_table()
+    sentiment_df = load_sentiment_table(refresh_nonce)
     
     if not sentiment_df.empty:
         # Re-calibrate sentiment labels based on user's granularity preference

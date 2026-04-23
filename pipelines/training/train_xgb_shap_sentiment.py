@@ -165,13 +165,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--embeddings", type=str, default=str(EMBEDDINGS_ARTIFACT_DIR / "user_embeddings.csv"))
     p.add_argument("--sentiment", type=str, default=str(SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv"))
     p.add_argument("--sessions", type=str, default=str(SECRET_DATA_DIR / "sessions.csv"))
-    p.add_argument("--feedback", type=str, default=str(SECRET_DATA_DIR / "feedbacks.csv"))
     p.add_argument(
         "--target_source",
         type=str,
-        choices=["auto", "human", "pseudo"],
+        choices=["auto", "pseudo"],
         default="auto",
-        help="auto prefers human feedback labels, then falls back to pseudo sentiment labels",
+        help="target labels are derived from sentiment artifacts",
     )
     p.add_argument(
         "--allow_pseudo_fallback",
@@ -538,7 +537,6 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
 
 def resolve_targets(args: argparse.Namespace, sentiment: pd.DataFrame, sessions_path: Path) -> tuple[pd.DataFrame, dict]:
     source_mode = args.target_source
-    feedback_path = resolve_input_path(args.feedback)
 
     meta = {
         "target_source": "",
@@ -548,29 +546,9 @@ def resolve_targets(args: argparse.Namespace, sentiment: pd.DataFrame, sessions_
         "warning": "",
     }
 
-    human_targets = pd.DataFrame(columns=["user_id", "target", "target_label"])
-    human_col = None
-    human_rows = 0
-    if feedback_path.exists():
-        feedback = pd.read_csv(feedback_path)
-        human_targets, human_col, human_rows = prepare_human_feedback_labels(feedback)
-
-    if source_mode in {"auto", "human"} and not human_targets.empty:
-        meta["target_source"] = "human_feedback"
-        meta["human_label_column"] = str(human_col or "")
-        meta["human_label_rows"] = int(human_rows)
-        return human_targets[["user_id", "target"]].copy(), meta
-
-    if source_mode == "human":
-        raise ValueError(
-            "target_source=human but no usable human feedback labels were found. "
-            "Provide explicit feedback columns like rating/thumb/sentiment_label."
-        )
-
     if source_mode == "auto" and not args.allow_pseudo_fallback:
         raise ValueError(
-            "No usable human feedback labels found. Refusing pseudo-label fallback by default. "
-            "Re-run with --allow_pseudo_fallback or provide explicit feedback labels."
+            "Pseudo-label fallback is disabled. Re-run with --allow_pseudo_fallback."
         )
 
     pseudo = prepare_pseudo_sentiment_labels(sentiment, sessions_path=sessions_path)

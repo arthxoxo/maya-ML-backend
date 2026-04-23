@@ -4,7 +4,6 @@ Kafka CSV Producer — streams local CSV files into Kafka topics as JSON message
 Each CSV is mapped to its own Kafka topic:
     users.csv             → maya_users
     sessions.csv          → maya_sessions
-    feedbacks.csv         → maya_feedbacks
     whatsapp_messages.csv → maya_whatsapp_messages
 
 Usage:
@@ -35,7 +34,6 @@ CSV_DIR = RAW_DATA_DIR
 CSV_TOPIC_MAP = {
     "users":              "maya_users",
     "sessions":           "maya_sessions",
-    "feedbacks":          "maya_feedbacks",
     "whatsapp_messages":  "maya_whatsapp_messages",
 }
 

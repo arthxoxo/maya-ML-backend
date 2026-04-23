@@ -29,7 +29,6 @@ app = FastAPI(title="Maya Database Ingestor")
 TABLES_TO_SYNC = {
     "users": "users.csv",
     "sessions": "sessions.csv",
-    "feedbacks": "feedbacks.csv",
     "whatsapp_messages": "whatsapp_messages.csv",
 }
 
