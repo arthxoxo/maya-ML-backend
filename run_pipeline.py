@@ -145,6 +145,11 @@ def build_steps(include_redis_publish: bool, include_kafka_publish: bool) -> lis
             description="Train GRU mood swing model from WhatsApp message sequences",
             cmd=[py, "-m", "pipelines.training.train_whatsapp_gru_mood_swings"],
         ),
+        Step(
+            id="monitor_pipeline_drift",
+            description="Stage 7: compare current artifacts vs previous run and generate drift report",
+            cmd=[py, "-m", "pipelines.monitoring.drift_monitor"],
+        ),
     ])
 
     if include_redis_publish:

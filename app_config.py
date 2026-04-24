@@ -6,6 +6,7 @@ from config import (  # backward-compatible re-export
     FLINK_ENGINEERED_DIR,
     GNN_OUTPUT_DIR,
     GNN_PREPROCESSED_DIR,
+    MONITORING_ARTIFACT_DIR,
     PERSONA_ARTIFACT_DIR,
     RAW_DATA_DIR,
     REDIS_PREFIX,
