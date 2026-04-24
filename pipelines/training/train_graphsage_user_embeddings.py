@@ -334,7 +334,8 @@ def main() -> None:
             epochs=args.epochs,
             lr=args.lr,
         )
-        torch.save(model.state_dict(), model_path)
+
+    torch.save(model.state_dict(), EMBEDDINGS_ARTIFACT_DIR / "graphsage_model.pt")
 
     model.eval()
     with torch.no_grad():

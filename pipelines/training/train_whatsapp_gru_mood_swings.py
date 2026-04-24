@@ -513,6 +513,8 @@ def main() -> None:
                 warning=warning,
             )
             return
+
+    torch.save(model.state_dict(), SENTIMENT_ARTIFACT_DIR / "gru_mood_model.pt")
             
     pred = _predict_sequences(model, x)
     summary = _summarize_users(df=df, meta=meta, x=x, y=y, pred=pred)

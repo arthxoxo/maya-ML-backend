@@ -35,7 +35,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from xgboost import XGBClassifier
 
-from app_config import EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
+from app_config import BASE_DIR, EMBEDDINGS_ARTIFACT_DIR, GNN_PREPROCESSED_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR, XGB_ARTIFACT_DIR
 from lib.device_utils import resolve_xgb_device
 from lib.online_store import load_artifact_df, save_artifact_df
 
@@ -664,6 +664,11 @@ def main() -> None:
             X, y, test_size=args.test_size, random_state=args.seed, stratify=strat
         )
 
+    train_neg_raw = int((y_train == 0).sum())
+    train_pos_raw = int((y_train == 1).sum())
+    test_neg = int((y_test == 0).sum())
+    test_pos = int((y_test == 1).sum())
+
     X_train_model, y_train_model, balance_meta = rebalance_binary_train_data(X_train, y_train, seed=args.seed)
     # ... rest of rebalance print ...
     
@@ -671,12 +676,12 @@ def main() -> None:
     pos = int((y_train_model == 1).sum())
     # Only use scale_pos_weight when positive class is the minority.
     scale_pos_weight = (neg / pos) if (pos > 0 and pos < neg) else 1.0
-    min_class_count = int(min(neg, pos))
+    min_class_count = int(min(train_neg_raw, train_pos_raw))
     requested_cv_folds = max(2, int(args.cv_folds))
     cv_folds_used = int(min(requested_cv_folds, min_class_count)) if min_class_count >= 2 else 0
     
     # Disable CV if samples are too few
-    if len(y_train_model) < 5 or cv_folds_used < 2:
+    if len(y_train) < 5 or cv_folds_used < 2:
         print("[info] Skipping CV AUC due to insufficient samples in training split.")
         cv_folds_used = 0
 
@@ -715,7 +720,7 @@ def main() -> None:
     cv_auc_std = float("nan")
     cv_best_iter_mean = float("nan")
     cv_best_iter_std = float("nan")
-    if cv_folds_used >= 2 and y_train_model.nunique() > 1:
+    if cv_folds_used >= 2 and y_train.nunique() > 1:
         if cv_folds_used < requested_cv_folds:
             print(
                 f"[warning] Requested {requested_cv_folds}-fold CV reduced to {cv_folds_used} due to minority class size."
@@ -723,14 +728,28 @@ def main() -> None:
         cv = StratifiedKFold(n_splits=cv_folds_used, shuffle=True, random_state=args.seed)
         fold_aucs: list[float] = []
         fold_best_iters: list[float] = []
-        for fold_idx, (tr_idx, va_idx) in enumerate(cv.split(X_train_model, y_train_model), start=1):
-            X_tr_fold = X_train_model.iloc[tr_idx]
-            y_tr_fold = y_train_model.iloc[tr_idx]
-            X_va_fold = X_train_model.iloc[va_idx]
-            y_va_fold = y_train_model.iloc[va_idx]
+        for fold_idx, (tr_idx, va_idx) in enumerate(cv.split(X_train, y_train), start=1):
+            X_tr_raw = X_train.iloc[tr_idx]
+            y_tr_raw = y_train.iloc[tr_idx]
+            X_va_fold = X_train.iloc[va_idx]
+            y_va_fold = y_train.iloc[va_idx]
 
-            model_fold = XGBClassifier(**model_params)
-            sample_weight_fold = y_tr_fold.map(class_weight_map).astype(float)
+            # Mirror final training behavior: rebalance only the training side of each fold.
+            X_tr_fold, y_tr_fold, _ = rebalance_binary_train_data(X_tr_raw, y_tr_raw, seed=args.seed + fold_idx)
+
+            fold_neg = int((y_tr_fold == 0).sum())
+            fold_pos = int((y_tr_fold == 1).sum())
+            fold_scale_pos_weight = (fold_neg / fold_pos) if (fold_pos > 0 and fold_pos < fold_neg) else 1.0
+
+            fold_weight_map: dict[int, float] = {0: 1.0, 1: 1.0}
+            if fold_pos > 0 and fold_neg > 0 and fold_neg != fold_pos:
+                if fold_neg < fold_pos:
+                    fold_weight_map[0] = float(fold_pos / fold_neg)
+                else:
+                    fold_weight_map[1] = float(fold_neg / fold_pos)
+
+            model_fold = XGBClassifier(**(model_params | {"scale_pos_weight": fold_scale_pos_weight}))
+            sample_weight_fold = y_tr_fold.map(fold_weight_map).astype(float)
             model_fold.fit(
                 X_tr_fold,
                 y_tr_fold,
@@ -876,6 +895,10 @@ def main() -> None:
         "predicted_users": int(len(emb)),
         "train_rows": int(len(X_train_model)),
         "test_rows": int(len(X_test)),
+        "train_split_neg_raw": int(train_neg_raw),
+        "train_split_pos_raw": int(train_pos_raw),
+        "test_split_neg": int(test_neg),
+        "test_split_pos": int(test_pos),
         "train_neg": int(neg),
         "train_pos": int(pos),
         "train_original_neg": int(balance_meta.get("original_neg", 0)),
@@ -895,7 +918,7 @@ def main() -> None:
         "pred_majority_share": float(pred_majority_share),
         "pred_prob_std": float(pred_prob_std),
         "model_collapse_risk": bool(bool(collapse_risk_warning)),
-        "model_artifact": str(model_out_path),
+        "model_artifact": str(model_out_path.relative_to(BASE_DIR)),
         "warning": " | ".join(
             [
                 w
