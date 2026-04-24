@@ -8,7 +8,7 @@ MAIN_PIP  := $(if $(wildcard main_venv/Scripts/pip.exe),./main_venv/Scripts/pip.
 # Tool paths
 PYENV ?= pyenv
 
-.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check empty-secret-data pipeline docker-pipeline ingestor-sync pipeline-from-db
+.PHONY: setup setup-all setup-flink-venv setup-main-venv start-dashboard start-flink start-producer start-all redis-publish redis-check empty-secret-data pipeline pipeline-cached pipeline-recompute gru-retrain docker-pipeline ingestor-sync pipeline-from-db
 
 setup: setup-all
 
@@ -43,6 +43,15 @@ start-all:
 
 pipeline:
 	PYTHONPATH=. $(MAIN_PY) run_pipeline.py $(FLAGS)
+
+pipeline-cached:
+	PYTHONPATH=. $(MAIN_PY) run_pipeline.py --use-cache $(FLAGS)
+
+pipeline-recompute:
+	PYTHONPATH=. $(MAIN_PY) run_pipeline.py --force-recompute $(FLAGS)
+
+gru-retrain:
+	PYTHONPATH=. $(MAIN_PY) -m pipelines.training.train_whatsapp_gru_mood_swings --force_retrain
 
 ingestor-sync:
 	@echo "[ingestor-sync] Triggering sync via $(INGESTOR_URL)/sync"

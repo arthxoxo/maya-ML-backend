@@ -39,6 +39,8 @@ Key environment variables:
 - `MAYA_STORE_TARGET` (`file`, `redis`, `hybrid`, or `auto`; default is `auto`)
 - `REDIS_URL` (required for Redis mode)
 - `MAYA_REDIS_PREFIX` (default: `maya:dashboard`)
+- `MAYA_ARTIFACT_BACKUP` (`1`/`0`, default: `1`) - keep timestamped CSV snapshots before overwrite
+- `MAYA_ARTIFACT_HISTORY_DIR` (default: `artifacts/history`) - location for overwrite backups
 
 Connected stage behavior:
 
@@ -48,6 +50,12 @@ Connected stage behavior:
 - Persona stage reads embeddings from the shared artifact store and publishes persona outputs back to Redis and CSV.
 
 This removes isolated CSV-only stages and creates an online, artifact-connected pipeline.
+
+Artifact overwrite behavior:
+
+- Pipeline stages write to stable CSV paths (latest view).
+- Before overwrite, `save_artifact_df` now saves a timestamped copy under `artifacts/history/<artifact_key>/`.
+- Set `MAYA_ARTIFACT_BACKUP=0` if you explicitly want old behavior (in-place overwrite only).
 
 ## Streaming Flow
 
@@ -203,5 +211,11 @@ Useful options:
 - `--stop-after <step_id>`
 - `--include-redis-publish` (force append Redis backfill step)
 - `--no-redis-publish` (disable Redis backfill step)
+- `--use-cache` (skip stage execution when required Redis artifacts already exist)
+- `--force-recompute` (run stages even when cache exists)
+
+Cache control env var:
+
+- `MAYA_PIPELINE_USE_CACHE=1` enables the same behavior as `--use-cache`.
 
 By default, if `REDIS_URL` is set, `run_pipeline.py` auto-appends the Redis backfill step.

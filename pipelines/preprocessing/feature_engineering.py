@@ -25,6 +25,7 @@ import re
 from tqdm import tqdm
 
 from app_config import FEATURE_OUTPUT_DIR, RAW_DATA_DIR, SENTIMENT_ARTIFACT_DIR
+from lib.online_store import save_artifact_df
 
 warnings.filterwarnings("ignore")
 
@@ -689,7 +690,7 @@ def main():
 
     # ── Save ─────────────────────────────────────────────────────────────
     output_path = OUTPUT_DIR / "user_feature_matrix.csv"
-    feature_matrix.to_csv(output_path, index=False)
+    save_artifact_df(feature_matrix, "user_feature_matrix", output_path, index=False)
 
     print(f"\n{'═' * 60}")
     print(f"✅  Feature matrix saved: {output_path}")

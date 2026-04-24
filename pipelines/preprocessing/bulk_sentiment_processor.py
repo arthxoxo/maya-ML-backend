@@ -21,6 +21,7 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app_config import RAW_DATA_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
+from lib.online_store import save_artifact_df
 
 
 def _find_csv(filename: str) -> Path:
@@ -152,7 +153,7 @@ def main():
             df["sentiment_label"] = labels
 
         print(f"Saving {len(df):,} rows to {output_path}...")
-        df.to_csv(output_path, index=False)
+        save_artifact_df(df, "sentiment_scores", output_path, index=False)
 
     print("\n✅ Bulk sentiment processing complete.")
 

@@ -1,15 +1,48 @@
 import json
 import logging
+import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from app_config import REDIS_PREFIX, REDIS_URL, STORE_TARGET
+from app_config import ARTIFACTS_DIR, REDIS_PREFIX, REDIS_URL, STORE_TARGET
 
 logger = logging.getLogger(__name__)
 
 MAX_PAYLOAD_SIZE = 2 * 1024 * 1024  # 2 MB limit for Redis payloads
+
+
+def _is_truthy(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _backup_existing_csv(csv_path: Path, artifact_key: str) -> None:
+    """
+    Keep timestamped history copies before overwriting artifact CSVs.
+
+    Controlled by env vars:
+    - MAYA_ARTIFACT_BACKUP (default: 1)
+    - MAYA_ARTIFACT_HISTORY_DIR (default: artifacts/history)
+    """
+    if not csv_path.exists():
+        return
+
+    backup_enabled = _is_truthy(os.getenv("MAYA_ARTIFACT_BACKUP", "1"))
+    if not backup_enabled:
+        return
+
+    history_root = Path(os.getenv("MAYA_ARTIFACT_HISTORY_DIR", str(ARTIFACTS_DIR / "history")))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_key = artifact_key.replace(":", "_").replace("/", "_")
+    backup_dir = history_root / safe_key
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    backup_name = f"{csv_path.stem}_{ts}{csv_path.suffix}"
+    backup_path = backup_dir / backup_name
+    shutil.copy2(csv_path, backup_path)
 
 
 def _get_redis_client():
@@ -59,6 +92,7 @@ def load_artifact_df(artifact_key: str, fallback_csv_path: Path, required: bool 
 
 def save_artifact_df(df: pd.DataFrame, artifact_key: str, csv_path: Path, index: bool = False) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
+    _backup_existing_csv(csv_path, artifact_key)
     df.to_csv(csv_path, index=index)
 
     client = _get_redis_client()

@@ -32,6 +32,69 @@ except ImportError:
     pass
 
 
+def _is_truthy(value: str) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _get_redis_client():
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if not redis_url:
+        return None
+    try:
+        import redis  # type: ignore
+    except Exception:
+        return None
+    try:
+        client = redis.Redis.from_url(redis_url, decode_responses=True)
+        client.ping()
+        return client
+    except Exception:
+        return None
+
+
+def _redis_key(artifact_key: str) -> str:
+    prefix = os.getenv("MAYA_REDIS_PREFIX", "maya:dashboard").strip() or "maya:dashboard"
+    return f"{prefix}:{artifact_key}"
+
+
+STEP_CACHE_KEYS: dict[str, list[str]] = {
+    "bulk_sentiment_preprocessing": ["sentiment_scores"],
+    "feature_engineering": ["user_feature_matrix"],
+    "build_gnn_nodes_from_flink": ["users_nodes", "sessions_nodes", "messages_nodes", "feedback_nodes"],
+    "train_user_behavior_gnn": [
+        "user_behaviour_scores",
+        "user_feature_importance_global",
+        "user_feature_importance_per_user",
+        "user_embeddings",
+        "embedding_dimension_labels",
+    ],
+    "train_graphsage_user_embeddings": ["user_embeddings"],
+    "train_xgb_shap_sentiment": [
+        "xgb_embedding_feature_importance",
+        "xgb_embedding_feature_importance_merged",
+        "xgb_target_report",
+        "xgb_user_predictions",
+    ],
+    "build_user_personas": [
+        "user_persona_table",
+        "persona_profiles",
+        "persona_feature_importance",
+        "persona_user_feature_contributions",
+    ],
+    "train_whatsapp_gru_mood_swings": ["gru_mood_swing_summary", "gru_mood_training_report"],
+}
+
+
+def _step_cached_in_redis(step_id: str, redis_client) -> bool:
+    keys = STEP_CACHE_KEYS.get(step_id, [])
+    if not keys or redis_client is None:
+        return False
+    try:
+        return all(bool(redis_client.exists(_redis_key(k))) for k in keys)
+    except Exception:
+        return False
+
+
 def preflight_secret_data_check() -> None:
     repo_root = Path(__file__).resolve().parent
     secret_dir = repo_root / "secret_data"
@@ -185,14 +248,23 @@ def slice_steps(steps: list[Step], start_from: str | None, stop_after: str | Non
     return steps[start_idx : stop_idx + 1]
 
 
-def run(steps: list[Step], dry_run: bool = False) -> int:
+def run(steps: list[Step], dry_run: bool = False, use_cache: bool = False, force_recompute: bool = False) -> int:
     total = len(steps)
+    redis_client = _get_redis_client() if use_cache else None
+    cache_available = bool(redis_client is not None)
+    if use_cache and not cache_available:
+        print("[WARN] --use-cache enabled but Redis cache is unavailable. Running all steps normally.")
+
     for i, step in enumerate(steps, start=1):
         cmd_str = " ".join(step.cmd)
         print(f"\n[{i}/{total}] {step.id}")
         print(f"  {step.description}")
         print(f"  $ {cmd_str}")
         if dry_run:
+            continue
+
+        if use_cache and cache_available and not force_recompute and _step_cached_in_redis(step.id, redis_client):
+            print(f"[SKIP] {step.id} (cache hit in Redis)")
             continue
 
         res = subprocess.run(step.cmd, cwd=Path(__file__).resolve().parent)
@@ -232,6 +304,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--start-from", type=str, default=None, help="Start from this step id.")
     p.add_argument("--stop-after", type=str, default=None, help="Stop after this step id.")
     p.add_argument("--fast", action="store_true", help="Enable fast mode (bypass heavy Transformers).")
+    p.add_argument(
+        "--use-cache",
+        action="store_true",
+        help="Skip stage execution when all required output artifacts already exist in Redis.",
+    )
+    p.add_argument(
+        "--force-recompute",
+        action="store_true",
+        help="Run all selected stages even when --use-cache is enabled and Redis artifacts exist.",
+    )
     return p.parse_args()
 
 
@@ -251,7 +333,20 @@ def main() -> None:
         include_kafka_publish=include_kafka_publish,
     )
     steps = slice_steps(steps, start_from=args.start_from, stop_after=args.stop_after)
-    exit_code = run(steps, dry_run=bool(args.dry_run))
+
+    # Cache is enabled if explicitly requested, env-enabled, or Redis is configured.
+    # This makes pipeline reruns Redis-first by default when an online store is available.
+    use_cache = (
+        bool(args.use_cache)
+        or _is_truthy(os.getenv("MAYA_PIPELINE_USE_CACHE", "0"))
+        or bool(redis_url)
+    )
+    exit_code = run(
+        steps,
+        dry_run=bool(args.dry_run),
+        use_cache=use_cache,
+        force_recompute=bool(args.force_recompute),
+    )
     raise SystemExit(exit_code)
 
 
