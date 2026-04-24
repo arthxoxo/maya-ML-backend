@@ -1,2 +1,2 @@
 total_messages,eligible_users,sequence_length,hidden_size,epochs,batch_size,train_samples,val_samples,train_loss,val_mse,val_baseline_mse,training_mode,training_ran,val_mse_vs_baseline_pct,validation_split_strategy
-7179,91,8,32,25,64,4422,1149,0.07364811695047788,0.06886206567287445,0.115857794880867,trained,True,40.563286446386115,per_user_chronological_80_20
+7189,91,8,64,50,64,4431,1150,0.07286140407834735,0.07054834812879562,0.1181236207485199,trained,True,40.27583333312308,per_user_chronological_80_20

@@ -521,7 +521,7 @@ def prepare_pseudo_sentiment_labels(sentiment: pd.DataFrame, sessions_path: Path
         ss["user_id"] = pd.to_numeric(ss.get("user_id"), errors="coerce")
         ss["sentiment_score"] = pd.to_numeric(ss["sentiment_score"], errors="coerce")
         ss = ss.dropna(subset=["user_id", "sentiment_score"]).copy()
-        ss = ss[(ss["sentiment_score"] >= 0.05) | (ss["sentiment_score"] <= -0.05)].copy()
+        ss = ss[(ss["sentiment_score"] >= 0.03) | (ss["sentiment_score"] <= -0.03)].copy()
         if ss.empty and "message" in sentiment.columns:
             ss = sentiment.copy()
             if "user_id" not in ss.columns and "session_id" in ss.columns and sessions_path.exists():
@@ -612,16 +612,62 @@ def main() -> None:
         return
 
     # 1. Preprocess the FULL embedding matrix (all users, typically 960+)
-    X_full, prep_stats = preprocess_embedding_matrix(
+    X_emb, prep_stats = preprocess_embedding_matrix(
         emb[emb_cols],
         winsor_q_low=args.winsor_q_low,
         winsor_q_high=args.winsor_q_high,
         low_variance_threshold=args.low_variance_threshold,
         corr_drop_threshold=args.corr_drop_threshold,
     )
-    emb_cols_used = X_full.columns.tolist()
+    emb_cols_used = X_emb.columns.tolist()
     if not emb_cols_used:
         raise ValueError("All embedding dimensions were removed by preprocessing. Relax preprocessing thresholds.")
+
+    # 1b. Feature Fusion: join explicit behavioral features from user_feature_matrix.csv
+    behavioral_feature_cols = []
+    feat_matrix_path = BASE_DIR / "user_feature_matrix.csv"
+    if feat_matrix_path.exists():
+        feat_matrix = pd.read_csv(feat_matrix_path)
+        feat_matrix["user_id"] = pd.to_numeric(feat_matrix["user_id"], errors="coerce")
+        feat_matrix = feat_matrix.dropna(subset=["user_id"]).copy()
+        feat_matrix["user_id"] = feat_matrix["user_id"].astype(int)
+
+        # Select the most informative behavioral features
+        candidate_behavioral_cols = [
+            "total_messages_sent", "unique_sessions", "avg_message_length",
+            "question_ratio", "avg_conversation_depth",
+            "total_input_tokens", "total_output_tokens", "total_cost_usd",
+            "active_days_count", "messages_per_active_day",
+            "avg_sentiment", "sentiment_std", "negative_msg_ratio", "positive_msg_ratio",
+            "neutral_msg_ratio", "sentiment_volatility",
+            "total_sessions", "avg_session_duration_sec", "total_session_duration_sec",
+            "sessions_per_week", "session_completion_rate",
+            "total_words", "unique_words", "vocabulary_richness",
+            "emoji_usage_rate", "engagement_score",
+        ]
+        behavioral_feature_cols = [c for c in candidate_behavioral_cols if c in feat_matrix.columns]
+
+        if behavioral_feature_cols:
+            feat_subset = feat_matrix[["user_id"] + behavioral_feature_cols].copy()
+            for c in behavioral_feature_cols:
+                feat_subset[c] = pd.to_numeric(feat_subset[c], errors="coerce").fillna(0.0).astype(np.float32)
+
+            # Align with embedding user order
+            feat_aligned = emb[["user_id"]].merge(feat_subset, on="user_id", how="left")
+            feat_values = feat_aligned[behavioral_feature_cols].fillna(0.0).astype(np.float32)
+            feat_values = feat_values.reset_index(drop=True)
+            X_emb = X_emb.reset_index(drop=True)
+
+            X_full = pd.concat([X_emb, feat_values], axis=1)
+            print(f"[feature_fusion] Added {len(behavioral_feature_cols)} behavioral features: {behavioral_feature_cols}")
+        else:
+            X_full = X_emb
+            print("[feature_fusion] No matching behavioral features found in user_feature_matrix.csv")
+    else:
+        X_full = X_emb
+        print(f"[feature_fusion] user_feature_matrix.csv not found at {feat_matrix_path}, using embeddings only")
+
+    all_feature_cols = X_full.columns.tolist()
 
     # 2. Identify the subset of users who have training targets
     train_mask = emb["user_id"].isin(user_targets["user_id"])
@@ -702,11 +748,15 @@ def main() -> None:
         print(f"[warning] {class_balance_warning}")
 
     model_params = dict(
-        n_estimators=int(args.n_estimators),
-        max_depth=5,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
+        n_estimators=800,
+        max_depth=4,
+        learning_rate=0.08,
+        subsample=0.8,
+        colsample_bytree=0.7,
+        min_child_weight=3,
+        gamma=0.1,
+        reg_alpha=0.1,
+        reg_lambda=1.5,
         objective="binary:logistic",
         eval_metric="logloss",
         early_stopping_rounds=int(args.early_stopping_rounds),
@@ -850,10 +900,12 @@ def main() -> None:
         shap_arr = np.array(shap_vals)
 
     mean_abs_shap = np.abs(shap_arr).mean(axis=0)
-    imp = pd.DataFrame({"feature": emb_cols_used, "mean_abs_shap": mean_abs_shap}).sort_values(
+    imp = pd.DataFrame({"feature": all_feature_cols, "mean_abs_shap": mean_abs_shap}).sort_values(
         "mean_abs_shap", ascending=False
     )
-    imp["feature_label"] = imp["feature"].map(emb_label_map).fillna(imp["feature"].map(prettify_embedding_feature_name))
+    imp["feature_label"] = imp["feature"].map(emb_label_map).fillna(imp["feature"].apply(
+        lambda f: prettify_embedding_feature_name(f) if f.startswith("emb_") else f.replace("_", " ").title()
+    ))
     save_artifact_df(imp, "xgb_embedding_feature_importance", Path(args.out_importance), index=False)
 
     # Save per-user predictions so dashboard can show concrete model outputs.

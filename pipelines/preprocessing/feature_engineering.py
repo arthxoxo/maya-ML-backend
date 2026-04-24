@@ -39,10 +39,17 @@ _HF_UNAVAILABLE = False
 _NEGATIVE_TERMS = {
     "bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
     "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
+    "disappointing", "disappointed", "useless", "boring", "confused", "confusing",
+    "difficult", "hard", "stuck", "waiting", "lag", "bug", "crash", "poor",
+    "wrong", "miss", "missed", "lost", "waste", "annoying", "painful", "sad",
+    "unhappy", "worried", "stress", "stressed", "tired", "sucks", "horrible",
 }
 _POSITIVE_TERMS = {
     "good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
-    "resolved", "perfect", "excellent", "fast", "smooth",
+    "resolved", "perfect", "excellent", "fast", "smooth", "amazing", "wonderful",
+    "helpful", "cool", "super", "best", "fantastic", "brilliant", "easy",
+    "quick", "convenient", "reliable", "works", "working", "fixed", "solved",
+    "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha",
 }
 
 # ── Data Loading ─────────────────────────────────────────────────────────────
@@ -120,8 +127,9 @@ def _heuristic_sentiment_subjectivity(text: str) -> tuple[float, float]:
 
     pos_hits = sum(1 for t in tokens if t in _POSITIVE_TERMS)
     neg_hits = sum(1 for t in tokens if t in _NEGATIVE_TERMS)
-    polarity = (pos_hits - neg_hits) / max(len(tokens), 6)
-    polarity = float(max(min(polarity * 2.0, 1.0), -1.0))
+    denom = max(len(tokens), 4) if len(tokens) <= 8 else max(len(tokens), 6)
+    polarity = (pos_hits - neg_hits) / denom
+    polarity = float(max(min(polarity * 2.5, 1.0), -1.0))
     subjectivity = float(min(max(0.2 + 0.8 * abs(polarity), 0.0), 1.0))
     return round(polarity, 4), round(subjectivity, 4)
 

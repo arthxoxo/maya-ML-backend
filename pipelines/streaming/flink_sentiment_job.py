@@ -51,10 +51,17 @@ _HF_SENTIMENT_UNAVAILABLE = False
 _NEGATIVE_TERMS = {
     "bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
     "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
+    "disappointing", "disappointed", "useless", "boring", "confused", "confusing",
+    "difficult", "hard", "stuck", "waiting", "lag", "bug", "crash", "poor",
+    "wrong", "miss", "missed", "lost", "waste", "annoying", "painful", "sad",
+    "unhappy", "worried", "stress", "stressed", "tired", "sucks", "horrible",
 }
 _POSITIVE_TERMS = {
     "good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
-    "resolved", "perfect", "excellent", "fast", "smooth",
+    "resolved", "perfect", "excellent", "fast", "smooth", "amazing", "wonderful",
+    "helpful", "cool", "super", "best", "fantastic", "brilliant", "easy",
+    "quick", "convenient", "reliable", "works", "working", "fixed", "solved",
+    "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha",
 }
 
 
@@ -69,15 +76,19 @@ def _heuristic_sentiment_score(text: str) -> float:
 
     pos_hits = sum(1 for t in tokens if t in _POSITIVE_TERMS)
     neg_hits = sum(1 for t in tokens if t in _NEGATIVE_TERMS)
-    raw = (pos_hits - neg_hits) / max(len(tokens), 6)
+    # Use smaller denominator for short messages to amplify signal
+    denom = max(len(tokens), 4) if len(tokens) <= 8 else max(len(tokens), 6)
+    raw = (pos_hits - neg_hits) / denom
 
     if "!" in s:
-        raw *= 1.1
-    if any(w in s for w in ["not good", "not happy", "never again"]):
+        raw *= 1.2
+    if "?" in s and neg_hits > 0:
+        raw -= 0.05  # Questions with negative terms lean negative
+    if any(w in s for w in ["not good", "not happy", "never again", "don't like", "can't"]):
         raw -= 0.2
-    if any(w in s for w in ["not bad", "works now", "all good"]):
+    if any(w in s for w in ["not bad", "works now", "all good", "thank you", "no problem"]):
         raw += 0.2
-    return float(max(min(raw * 2.0, 1.0), -1.0))
+    return float(max(min(raw * 2.5, 1.0), -1.0))
 
 
 def _get_hf_sentiment_pipe():
@@ -147,9 +158,9 @@ def compute_sentiment_all(text: str) -> Row:
 def sentiment_label(score: float) -> str:
     if score is None:
         return "neutral"
-    if score > 0.1:
+    if score > 0.05:
         return "positive"
-    if score < -0.1:
+    if score < -0.05:
         return "negative"
     return "neutral"
 

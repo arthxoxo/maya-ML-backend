@@ -27,10 +27,21 @@ from lib.online_store import load_artifact_df, save_artifact_df
 
 
 class MoodGRU(nn.Module):
-    def __init__(self, hidden: int):
+    def __init__(self, input_size: int = 3, hidden: int = 64):
         super().__init__()
-        self.gru = nn.GRU(input_size=1, hidden_size=hidden, num_layers=1, batch_first=True)
-        self.head = nn.Linear(hidden, 1)
+        self.gru = nn.GRU(
+            input_size=input_size,
+            hidden_size=hidden,
+            num_layers=2,
+            batch_first=True,
+            dropout=0.2,
+        )
+        self.head = nn.Sequential(
+            nn.Linear(hidden, hidden // 2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden // 2, 1),
+        )
 
     def forward(self, seq):
         out, _ = self.gru(seq)
@@ -111,8 +122,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out_summary", type=str, default=str(SENTIMENT_ARTIFACT_DIR / "gru_mood_swing_summary.csv"))
     p.add_argument("--out_report", type=str, default=str(SENTIMENT_ARTIFACT_DIR / "gru_mood_training_report.csv"))
     p.add_argument("--sequence_length", type=int, default=8)
-    p.add_argument("--hidden_size", type=int, default=32)
-    p.add_argument("--epochs", type=int, default=25)
+    p.add_argument("--hidden_size", type=int, default=64)
+    p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--batch_size", type=int, default=64)
     p.add_argument("--learning_rate", type=float, default=1e-3)
     p.add_argument("--min_user_msgs", type=int, default=12)
@@ -180,10 +191,30 @@ def _load_sentiment_messages(sentiment_path: Path, sessions_path: Path) -> pd.Da
         lbl = s.get("sentiment_label", "neutral").fillna("neutral").astype(str).str.lower().str.strip()
         s["sentiment_score"] = np.where(lbl.eq("positive"), 0.25, np.where(lbl.eq("negative"), -0.25, 0.0))
     s["sentiment_score"] = pd.to_numeric(s.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+
+    # Additional features for multi-feature GRU input
+    if "sentiment_confidence" in s.columns:
+        s["sentiment_confidence"] = pd.to_numeric(s["sentiment_confidence"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    else:
+        s["sentiment_confidence"] = s["sentiment_score"].abs()
+
+    if "message_word_len" in s.columns:
+        s["message_word_len"] = pd.to_numeric(s["message_word_len"], errors="coerce").fillna(0.0)
+    elif "message" in s.columns:
+        s["message_word_len"] = s["message"].fillna("").astype(str).str.split().str.len().fillna(0).astype(float)
+    else:
+        s["message_word_len"] = 0.0
+    # Normalize message_word_len to [0, 1] range
+    max_wl = s["message_word_len"].max()
+    if max_wl > 0:
+        s["message_word_len_norm"] = (s["message_word_len"] / max_wl).clip(0.0, 1.0).astype(np.float32)
+    else:
+        s["message_word_len_norm"] = 0.0
+
     s["created_at"] = pd.to_datetime(s.get("created_at"), errors="coerce", utc=True)
     s["order_idx"] = np.arange(len(s))
     s = s.sort_values(["user_id", "created_at", "order_idx"], kind="mergesort").reset_index(drop=True)
-    return s[["user_id", "created_at", "sentiment_score"]]
+    return s[["user_id", "created_at", "sentiment_score", "sentiment_confidence", "message_word_len_norm"]]
 
 
 def _build_samples(
@@ -191,19 +222,24 @@ def _build_samples(
     sequence_length: int,
     min_user_msgs: int,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    """Build multi-feature sequences: [sentiment_score, sentiment_confidence, message_word_len_norm]."""
+    feature_cols = ["sentiment_score", "sentiment_confidence", "message_word_len_norm"]
+    n_features = len(feature_cols)
+
     seq_x: list[np.ndarray] = []
     seq_y: list[float] = []
     meta_rows: list[dict] = []
 
     eligible_users = 0
     for user_id, grp in df.groupby("user_id", sort=False):
-        values = grp["sentiment_score"].astype(float).to_numpy()
+        values = grp[feature_cols].astype(float).to_numpy()  # shape: (n_msgs, n_features)
+        targets = grp["sentiment_score"].astype(float).to_numpy()
         if len(values) < max(min_user_msgs, sequence_length + 1):
             continue
         eligible_users += 1
         for idx in range(sequence_length, len(values)):
-            seq_x.append(values[idx - sequence_length : idx].astype(np.float32))
-            seq_y.append(float(values[idx]))
+            seq_x.append(values[idx - sequence_length : idx].astype(np.float32))  # (seq_len, n_features)
+            seq_y.append(float(targets[idx]))
             meta_rows.append(
                 {
                     "user_id": int(user_id),
@@ -213,8 +249,8 @@ def _build_samples(
             )
 
     if not seq_x:
-        return np.zeros((0, sequence_length), dtype=np.float32), np.zeros((0,), dtype=np.float32), pd.DataFrame()
-    x = np.stack(seq_x).astype(np.float32)
+        return np.zeros((0, sequence_length, n_features), dtype=np.float32), np.zeros((0,), dtype=np.float32), pd.DataFrame()
+    x = np.stack(seq_x).astype(np.float32)  # (n_samples, seq_len, n_features)
     y = np.array(seq_y, dtype=np.float32)
     meta = pd.DataFrame(meta_rows)
     meta["eligible_users"] = int(eligible_users)
@@ -270,10 +306,11 @@ def _build_time_split_indices(x: np.ndarray, meta_df: pd.DataFrame) -> tuple[np.
 def _evaluate_gru(model: MoodGRU, x: np.ndarray, y: np.ndarray, train_idx: np.ndarray, val_idx: np.ndarray) -> tuple[float, float]:
     device = next(model.parameters()).device
 
-    x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
+    x_val = torch.tensor(x[val_idx], dtype=torch.float32).to(device)
     y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
 
-    baseline_pred = x[val_idx][:, -1]
+    # Baseline: last sentiment_score (first feature) from input window
+    baseline_pred = x[val_idx][:, -1, 0]  # sentiment_score is feature index 0
     val_baseline_mse = float(np.mean((baseline_pred - y[val_idx]) ** 2)) if len(val_idx) else float("nan")
 
     model.eval()
@@ -307,24 +344,27 @@ def _train_gru(
         raise ValueError("Not enough sequence samples to train GRU model.")
     train_idx, val_idx = _build_time_split_indices(x, meta)
 
-    x_train = torch.tensor(x[train_idx], dtype=torch.float32).unsqueeze(-1)
+    # x is now 3D: (n_samples, seq_len, n_features) — no unsqueeze needed
+    input_size = x.shape[2] if x.ndim == 3 else 1
+    x_train = torch.tensor(x[train_idx], dtype=torch.float32)
     y_train = torch.tensor(y[train_idx], dtype=torch.float32).unsqueeze(-1)
-    x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
+    x_val = torch.tensor(x[val_idx], dtype=torch.float32).to(device)
     y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
 
-    # Naive baseline: predict next sentiment as last sentiment from the input window.
-    val_baseline_pred = x[val_idx][:, -1]
+    # Naive baseline: predict next sentiment as last sentiment_score from the input window.
+    val_baseline_pred = x[val_idx][:, -1, 0]  # sentiment_score is feature index 0
     val_baseline_mse = float(np.mean((val_baseline_pred - y[val_idx]) ** 2)) if len(val_idx) else float("nan")
 
     train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=max(1, batch_size), shuffle=True)
 
-
-    model = MoodGRU(hidden=max(8, int(hidden_size))).to(device)
+    model = MoodGRU(input_size=input_size, hidden=max(8, int(hidden_size))).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(learning_rate))
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=8, min_lr=1e-5)
     criterion = nn.MSELoss()
 
+    best_val_mse = float('inf')
     train_loss = 0.0
-    for _ in range(max(1, int(epochs))):
+    for epoch in range(1, max(1, int(epochs)) + 1):
         model.train()
         batch_losses: list[float] = []
         for xb, yb in train_loader:
@@ -333,9 +373,24 @@ def _train_gru(
             pred = model(xb)
             loss = criterion(pred, yb)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             batch_losses.append(float(loss.item()))
         train_loss = float(np.mean(batch_losses)) if batch_losses else 0.0
+
+        # Validation monitoring
+        model.eval()
+        with torch.no_grad():
+            val_pred = model(x_val)
+            val_mse_epoch = float(criterion(val_pred, y_val).item())
+        scheduler.step(val_mse_epoch)
+
+        if val_mse_epoch < best_val_mse:
+            best_val_mse = val_mse_epoch
+
+        if epoch % 10 == 0 or epoch == 1:
+            lr = optimizer.param_groups[0]['lr']
+            print(f"  [gru] epoch={epoch:03d} train_loss={train_loss:.4f} val_mse={val_mse_epoch:.4f} lr={lr:.6f}")
 
     model.eval()
     with torch.no_grad():
@@ -346,11 +401,10 @@ def _train_gru(
 
 
 def _predict_sequences(model, x: np.ndarray) -> np.ndarray:
-
-    # Move input to the same device the model lives on
+    # x is 3D: (n_samples, seq_len, n_features) — no unsqueeze needed
     _device = next(model.parameters()).device
     with torch.no_grad():
-        pred = model(torch.tensor(x, dtype=torch.float32).unsqueeze(-1).to(_device))
+        pred = model(torch.tensor(x, dtype=torch.float32).to(_device))
     return pred.detach().cpu().numpy().reshape(-1)
 
 

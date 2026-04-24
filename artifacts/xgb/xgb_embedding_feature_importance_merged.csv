@@ -1,8 +1,31 @@
 signal_name,mean_abs_shap,dim_count,dimensions
-Session Count,0.95683986,14,"emb_18, emb_19, emb_2, emb_24, emb_25, emb_26, emb_36, emb_38, emb_39, emb_46, emb_5, emb_52, emb_56, emb_8"
-Msg Char Len Mean,0.37695155,8,"emb_1, emb_12, emb_14, emb_16, emb_17, emb_23, emb_32, emb_41"
-Transcription Ratio,0.1870039,4,"emb_21, emb_22, emb_44, emb_48"
-Summary Ratio,0.11048329,1,emb_15
-Msg Word Len Mean,0.093112454,7,"emb_0, emb_13, emb_30, emb_40, emb_45, emb_6, emb_62"
-Account Age Days,0.06640795,2,"emb_10, emb_4"
-Contacts Backfilled,0.03679147,3,"emb_11, emb_28, emb_3"
+avg_sentiment,2.2656193,1,avg_sentiment
+negative_msg_ratio,0.56778526,1,negative_msg_ratio
+positive_msg_ratio,0.11834329,1,positive_msg_ratio
+avg_conversation_depth,0.08599169,1,avg_conversation_depth
+neutral_msg_ratio,0.015804058,1,neutral_msg_ratio
+messages_per_active_day,0.013586589,1,messages_per_active_day
+avg_message_length,0.012909458,1,avg_message_length
+question_ratio,0.012731992,1,question_ratio
+emoji_usage_rate,0.010212285,1,emoji_usage_rate
+active_days_count,0.009714338,1,active_days_count
+total_cost_usd,0.0,1,total_cost_usd
+total_sessions,0.0,1,total_sessions
+total_words,0.0,1,total_words
+unique_sessions,0.0,1,unique_sessions
+unique_words,0.0,1,unique_words
+total_session_duration_sec,0.0,1,total_session_duration_sec
+total_output_tokens,0.0,1,total_output_tokens
+total_messages_sent,0.0,1,total_messages_sent
+total_input_tokens,0.0,1,total_input_tokens
+Msg Char Len Mean,0.0,15,"emb_13, emb_15, emb_2, emb_21, emb_30, emb_34, emb_37, emb_4, emb_43, emb_46, emb_47, emb_5, emb_57, emb_6, emb_8"
+sessions_per_week,0.0,1,sessions_per_week
+session_completion_rate,0.0,1,session_completion_rate
+sentiment_volatility,0.0,1,sentiment_volatility
+sentiment_std,0.0,1,sentiment_std
+Msg Word Len Mean,0.0,6,"emb_0, emb_12, emb_28, emb_32, emb_40, emb_52"
+engagement_score,0.0,1,engagement_score
+avg_session_duration_sec,0.0,1,avg_session_duration_sec
+Transcription Ratio,0.0,39,"emb_10, emb_11, emb_14, emb_16, emb_17, emb_18, emb_19, emb_20, emb_22, emb_23, emb_24, emb_25, emb_26, emb_27, emb_29, emb_3, emb_31, emb_35, emb_36, emb_38, emb_39, emb_41, emb_42, emb_45, emb_48, emb_49, emb_50, emb_51, emb_53, emb_54, emb_55, emb_58, emb_59, emb_60, emb_61, emb_62, emb_63, emb_7, emb_9"
+Status,0.0,1,emb_1
+vocabulary_richness,0.0,1,vocabulary_richness

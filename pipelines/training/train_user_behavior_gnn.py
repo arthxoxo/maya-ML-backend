@@ -257,7 +257,7 @@ def aggregate_to_target(src_emb: torch.Tensor, target_index: torch.Tensor, targe
 
 
 class UserBehaviorGNN(nn.Module):
-    def __init__(self, user_in: int, session_in: int, message_in: int, feedback_in: int, hidden: int = 64):
+    def __init__(self, user_in: int, session_in: int, message_in: int, feedback_in: int, hidden: int = 128):
         super().__init__()
         self.user_proj = nn.Linear(user_in, hidden)
         self.session_proj = nn.Linear(session_in, hidden)
@@ -266,10 +266,13 @@ class UserBehaviorGNN(nn.Module):
 
         self.fuse = nn.Sequential(
             nn.Linear(hidden * 4, hidden),
+            nn.BatchNorm1d(hidden),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(hidden, hidden),
+            nn.BatchNorm1d(hidden),
             nn.ReLU(),
+            nn.Dropout(0.1),
         )
         self.classifier = nn.Linear(hidden, 1)
 
@@ -310,12 +313,20 @@ def train_model(
     feedback_to_user: torch.Tensor,
     y: torch.Tensor,
     train_mask: torch.Tensor,
-    epochs: int = 250,
+    val_mask: torch.Tensor,
+    epochs: int = 400,
 ) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=30, min_lr=1e-5)
 
-    pos_weight = ((y[train_mask] == 0).sum().float() / torch.clamp((y[train_mask] == 1).sum().float(), min=1.0)).detach()
+    pos_count = (y[train_mask] == 1).sum().float()
+    neg_count = (y[train_mask] == 0).sum().float()
+    pos_weight = (neg_count / torch.clamp(pos_count, min=1.0)).detach()
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    best_val_loss = float('inf')
+    patience_counter = 0
+    patience_limit = 80
 
     model.train()
     for epoch in range(1, epochs + 1):
@@ -323,24 +334,44 @@ def train_model(
         logits, _ = model(user_x, session_x, message_x, feedback_x, session_to_user, message_to_user, feedback_to_user)
         loss = criterion(logits[train_mask], y[train_mask])
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+
+        # Validation monitoring
+        with torch.no_grad():
+            val_logits = logits[val_mask]
+            val_loss = criterion(val_logits, y[val_mask]).item() if val_mask.sum() > 0 else loss.item()
+            scheduler.step(val_loss)
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+
+        if patience_counter >= patience_limit:
+            print(f"Early stopping at epoch {epoch} (val_loss={val_loss:.4f}, best={best_val_loss:.4f})")
+            break
 
         if epoch % 50 == 0 or epoch == 1:
             with torch.no_grad():
                 probs = torch.sigmoid(logits)
                 preds = (probs > 0.5).float()
-                acc = (preds[train_mask] == y[train_mask]).float().mean().item()
-            print(f"epoch={epoch:03d} loss={loss.item():.4f} train_acc={acc:.4f}")
+                train_acc = (preds[train_mask] == y[train_mask]).float().mean().item()
+                val_acc = (preds[val_mask] == y[val_mask]).float().mean().item() if val_mask.sum() > 0 else float('nan')
+                lr = optimizer.param_groups[0]['lr']
+            print(f"epoch={epoch:03d} loss={loss.item():.4f} train_acc={train_acc:.4f} val_acc={val_acc:.4f} lr={lr:.6f}")
 
 
-def build_train_mask(n: int, frac: float = 0.8, seed: int = 42) -> torch.Tensor:
+def build_train_val_masks(n: int, frac: float = 0.8, seed: int = 42) -> tuple[torch.Tensor, torch.Tensor]:
     rng = np.random.default_rng(seed)
     idx = np.arange(n)
     rng.shuffle(idx)
     k = max(1, int(n * frac))
-    mask = np.zeros(n, dtype=bool)
-    mask[idx[:k]] = True
-    return torch.tensor(mask)
+    train_mask = np.zeros(n, dtype=bool)
+    train_mask[idx[:k]] = True
+    val_mask = ~train_mask
+    return torch.tensor(train_mask), torch.tensor(val_mask)
 
 
 def main() -> None:
@@ -424,8 +455,25 @@ def main() -> None:
     feedback_x = feedback_x.loc[valid_feedback_mask].reset_index(drop=True)
     feedback_to_user = feedback_to_user.loc[valid_feedback_mask].reset_index(drop=True)
 
-    # Pseudo target: high-engagement user (top quartile).
-    y_series = (user_df["engagement_score"] >= user_df["engagement_score"].quantile(0.75)).astype(np.float32)
+    # Robust binary target: active users (have actual messages AND sessions) vs inactive.
+    # The old quantile(0.75) target was broken because ~95% of users have engagement_score=0.0,
+    # making the 75th percentile = 0.0, which labels EVERYONE as "high engagement" (single class).
+    has_activity = (
+        (user_df["message_count"] > 0) &
+        (user_df["session_count"] > 0) &
+        (user_df["engagement_score"] > 0)
+    )
+    y_series = has_activity.astype(np.float32)
+    n_pos = int(y_series.sum())
+    n_neg = int(len(y_series) - n_pos)
+    print(f"[target] active_users={n_pos} inactive_users={n_neg} ratio={n_pos/(n_pos+n_neg):.2%}")
+    if n_pos == 0 or n_neg == 0:
+        print("[warning] Single-class target detected. Falling back to median split on engagement_score.")
+        median_score = user_df["engagement_score"].median()
+        y_series = (user_df["engagement_score"] > median_score).astype(np.float32)
+        n_pos = int(y_series.sum())
+        n_neg = int(len(y_series) - n_pos)
+        print(f"[target-fallback] pos={n_pos} neg={n_neg}")
 
     device = resolve_device()
 
@@ -439,14 +487,16 @@ def main() -> None:
     message_to_user_t = torch.tensor(message_to_user.values, dtype=torch.long).to(device)
     feedback_to_user_t = torch.tensor(feedback_to_user.values, dtype=torch.long).to(device)
 
-    train_mask = build_train_mask(len(user_df), frac=0.8).to(device)
+    train_mask, val_mask = build_train_val_masks(len(user_df), frac=0.8)
+    train_mask = train_mask.to(device)
+    val_mask = val_mask.to(device)
 
     model = UserBehaviorGNN(
         user_in=user_x_t.shape[1],
         session_in=session_x_t.shape[1],
         message_in=message_x_t.shape[1],
         feedback_in=feedback_x_t.shape[1],
-        hidden=64,
+        hidden=128,
     ).to(device)
 
     train_model(
@@ -460,7 +510,8 @@ def main() -> None:
         feedback_to_user_t,
         y_t,
         train_mask,
-        epochs=250,
+        val_mask,
+        epochs=400,
     )
 
     model.eval()

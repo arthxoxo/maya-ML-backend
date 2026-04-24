@@ -85,9 +85,16 @@ def main():
             import re
             _NEG = {"bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
                     "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
-                    "not", "never", "no", "poor", "difficult", "hard", "bug", "crash"}
+                    "not", "never", "no", "poor", "difficult", "hard", "bug", "crash",
+                    "disappointing", "disappointed", "useless", "boring", "confused", "confusing",
+                    "stuck", "waiting", "lag", "wrong", "miss", "missed", "lost", "waste",
+                    "annoying", "painful", "sad", "unhappy", "worried", "stress", "stressed",
+                    "tired", "sucks", "horrible"}
             _POS = {"good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
-                    "resolved", "perfect", "excellent", "fast", "smooth", "best", "cool", "super"}
+                    "resolved", "perfect", "excellent", "fast", "smooth", "best", "cool", "super",
+                    "amazing", "wonderful", "helpful", "fantastic", "brilliant", "easy",
+                    "quick", "convenient", "reliable", "works", "working", "fixed", "solved",
+                    "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha"}
 
             def _heuristic(text: str):
                 s = str(text or "").strip().lower()
@@ -98,9 +105,10 @@ def main():
                     return 0.0, 0.5, "neutral"
                 pos = sum(1 for t in tokens if t in _POS)
                 neg = sum(1 for t in tokens if t in _NEG)
-                raw = float(max(min(((pos - neg) / max(len(tokens), 5)) * 2.5, 1.0), -1.0))
-                lbl = "positive" if raw > 0.05 else ("negative" if raw < -0.04 else "neutral")
-                return round(raw, 4), round(abs(raw), 4), lbl
+                denom = max(len(tokens), 4) if len(tokens) <= 8 else max(len(tokens), 5)
+                raw = float(max(min(((pos - neg) / denom) * 2.5, 1.0), -1.0))
+                lbl = "positive" if raw > 0.03 else ("negative" if raw < -0.03 else "neutral")
+                return round(raw, 4), round(max(abs(raw), 0.1), 4), lbl
 
             results_list = [_heuristic(t) for t in df[text_col].fillna("").astype(str).tolist()]
             df["sentiment_score"] = [r[0] for r in results_list]
@@ -145,7 +153,9 @@ def main():
                     elif "negative" in label or label == "label_0":
                         scores.append(round(-score, 4))
                     else:
-                        scores.append(0.0)
+                        # Neutral: use a small signed score based on raw confidence
+                        # instead of flat 0.0 to preserve weak signals
+                        scores.append(round(score * 0.1, 4))
 
             print(f"Inference complete in {time.time() - start_time:.2f}s")
             df["sentiment_score"] = scores
