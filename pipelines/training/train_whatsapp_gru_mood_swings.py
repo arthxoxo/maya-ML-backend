@@ -216,6 +216,69 @@ def _build_samples(
     return x, y, meta
 
 
+def _build_time_split_indices(x: np.ndarray, meta_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    if meta_df.empty or "user_id" not in meta_df.columns:
+        idx_all = np.arange(len(x))
+        np.random.shuffle(idx_all)
+        split_at = max(int(0.8 * len(idx_all)), 1)
+        tr = idx_all[:split_at]
+        va = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
+        return tr.astype(int), va.astype(int)
+
+    work = meta_df.copy().reset_index().rename(columns={"index": "row_idx"})
+    if "target_created_at" in work.columns:
+        work["target_created_at"] = pd.to_datetime(work["target_created_at"], errors="coerce", utc=True)
+        work = work.sort_values(["user_id", "target_created_at", "target_idx", "row_idx"], kind="mergesort")
+    else:
+        work = work.sort_values(["user_id", "target_idx", "row_idx"], kind="mergesort")
+
+    train_parts: list[np.ndarray] = []
+    val_parts: list[np.ndarray] = []
+
+    for _, g in work.groupby("user_id", sort=False):
+        idxs = g["row_idx"].to_numpy(dtype=int)
+        n = len(idxs)
+        if n <= 2:
+            continue
+
+        split_at = int(np.floor(0.8 * n))
+        if split_at <= 0 or split_at >= n:
+            continue
+
+        train_parts.append(idxs[:split_at])
+        val_parts.append(idxs[split_at:])
+
+    train_idx_out = np.concatenate(train_parts) if train_parts else np.array([], dtype=int)
+    val_idx_out = np.concatenate(val_parts) if val_parts else np.array([], dtype=int)
+
+    # Fallback guardrail if per-user split still produces too little validation coverage.
+    if len(train_idx_out) == 0 or len(val_idx_out) == 0:
+        idx_all = np.arange(len(x))
+        np.random.shuffle(idx_all)
+        split_at = max(int(0.8 * len(idx_all)), 1)
+        train_idx_out = idx_all[:split_at]
+        val_idx_out = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
+
+    return train_idx_out.astype(int), val_idx_out.astype(int)
+
+
+def _evaluate_gru(model: MoodGRU, x: np.ndarray, y: np.ndarray, train_idx: np.ndarray, val_idx: np.ndarray) -> tuple[float, float]:
+    device = next(model.parameters()).device
+
+    x_val = torch.tensor(x[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
+    y_val = torch.tensor(y[val_idx], dtype=torch.float32).unsqueeze(-1).to(device)
+
+    baseline_pred = x[val_idx][:, -1]
+    val_baseline_mse = float(np.mean((baseline_pred - y[val_idx]) ** 2)) if len(val_idx) else float("nan")
+
+    model.eval()
+    with torch.no_grad():
+        val_pred = model(x_val)
+        val_mse = float(nn.MSELoss()(val_pred, y_val).item())
+
+    return val_mse, val_baseline_mse
+
+
 def _train_gru(
     x: np.ndarray,
     y: np.ndarray,
@@ -237,50 +300,6 @@ def _train_gru(
 
     if len(x) < 10:
         raise ValueError("Not enough sequence samples to train GRU model.")
-
-    def _build_time_split_indices(meta_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        if meta_df.empty or "user_id" not in meta_df.columns:
-            idx_all = np.arange(len(x))
-            np.random.shuffle(idx_all)
-            split_at = max(int(0.8 * len(idx_all)), 1)
-            tr = idx_all[:split_at]
-            va = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
-            return tr.astype(int), va.astype(int)
-
-        work = meta_df.copy().reset_index().rename(columns={"index": "row_idx"})
-        if "target_created_at" in work.columns:
-            work["target_created_at"] = pd.to_datetime(work["target_created_at"], errors="coerce", utc=True)
-            work = work.sort_values(["user_id", "target_created_at", "target_idx", "row_idx"], kind="mergesort")
-        else:
-            work = work.sort_values(["user_id", "target_idx", "row_idx"], kind="mergesort")
-
-        train_parts: list[np.ndarray] = []
-        val_parts: list[np.ndarray] = []
-
-        for _, g in work.groupby("user_id", sort=False):
-            idxs = g["row_idx"].to_numpy(dtype=int)
-            n = len(idxs)
-            if n <= 2:
-                train_parts.append(idxs)
-                continue
-
-            split_at = int(np.floor(0.8 * n))
-            split_at = min(max(split_at, 1), n - 1)
-            train_parts.append(idxs[:split_at])
-            val_parts.append(idxs[split_at:])
-
-        train_idx_out = np.concatenate(train_parts) if train_parts else np.array([], dtype=int)
-        val_idx_out = np.concatenate(val_parts) if val_parts else np.array([], dtype=int)
-
-        # Fallback guardrail if per-user split produces too little validation coverage.
-        if len(train_idx_out) == 0 or len(val_idx_out) == 0:
-            idx_all = np.arange(len(x))
-            np.random.shuffle(idx_all)
-            split_at = max(int(0.8 * len(idx_all)), 1)
-            train_idx_out = idx_all[:split_at]
-            val_idx_out = idx_all[split_at:] if split_at < len(idx_all) else idx_all[:1]
-        return train_idx_out.astype(int), val_idx_out.astype(int)
-
     train_idx, val_idx = _build_time_split_indices(meta)
 
     x_train = torch.tensor(x[train_idx], dtype=torch.float32).unsqueeze(-1)
@@ -460,13 +479,16 @@ def main() -> None:
         )
         return
 
+    train_idx, val_idx = _build_time_split_indices(x, meta)
+
     model_path = SENTIMENT_ARTIFACT_DIR / "gru_mood_model.pt"
     if model_path.exists():
         print(f"Loading existing GRU mood model from {model_path}")
         model = MoodGRU(hidden=max(8, int(args.hidden_size)))
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
-        train_loss, val_mse, val_baseline_mse = 0.0, 0.0, 0.0
-        train_samples, val_samples = len(x), 0
+        train_loss = 0.0
+        val_mse, val_baseline_mse = _evaluate_gru(model, x, y, train_idx, val_idx)
+        train_samples, val_samples = len(train_idx), len(val_idx)
     else:
         try:
             model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
