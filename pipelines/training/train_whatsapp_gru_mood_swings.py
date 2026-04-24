@@ -117,6 +117,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--learning_rate", type=float, default=1e-3)
     p.add_argument("--min_user_msgs", type=int, default=12)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--force_retrain",
+        action="store_true",
+        help="Ignore existing checkpoint and retrain GRU weights before scoring.",
+    )
     return p.parse_args()
 
 
@@ -300,7 +305,7 @@ def _train_gru(
 
     if len(x) < 10:
         raise ValueError("Not enough sequence samples to train GRU model.")
-    train_idx, val_idx = _build_time_split_indices(meta)
+    train_idx, val_idx = _build_time_split_indices(x, meta)
 
     x_train = torch.tensor(x[train_idx], dtype=torch.float32).unsqueeze(-1)
     y_train = torch.tensor(y[train_idx], dtype=torch.float32).unsqueeze(-1)
@@ -482,15 +487,19 @@ def main() -> None:
     train_idx, val_idx = _build_time_split_indices(x, meta)
 
     model_path = SENTIMENT_ARTIFACT_DIR / "gru_mood_model.pt"
-    if model_path.exists():
+    training_ran = False
+    if model_path.exists() and not args.force_retrain:
         print(f"Loading existing GRU mood model from {model_path}")
         model = MoodGRU(hidden=max(8, int(args.hidden_size)))
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
-        train_loss = 0.0
+        train_loss = float("nan")
         val_mse, val_baseline_mse = _evaluate_gru(model, x, y, train_idx, val_idx)
         train_samples, val_samples = len(train_idx), len(val_idx)
+        training_mode = "loaded_checkpoint"
     else:
         try:
+            if model_path.exists() and args.force_retrain:
+                print(f"[info] --force_retrain enabled; retraining and overwriting {model_path}")
             model, train_loss, val_mse, val_baseline_mse, train_samples, val_samples = _train_gru(
                 x=x,
                 y=y,
@@ -501,6 +510,8 @@ def main() -> None:
                 learning_rate=float(args.learning_rate),
                 seed=int(args.seed),
             )
+            training_ran = True
+            training_mode = "trained"
             torch.save(model.state_dict(), model_path)
         except (ValueError, ImportError) as exc:
             warning = f"Skipping GRU mood swing training because the dataset is too small or runtime requirements are missing. Details: {exc}"
@@ -533,6 +544,8 @@ def main() -> None:
                 "train_loss": float(train_loss),
                 "val_mse": float(val_mse),
                 "val_baseline_mse": float(val_baseline_mse),
+                "training_mode": training_mode,
+                "training_ran": bool(training_ran),
                 "val_mse_vs_baseline_pct": float(((val_baseline_mse - val_mse) / val_baseline_mse) * 100.0)
                 if pd.notna(val_baseline_mse) and val_baseline_mse > 0
                 else np.nan,
