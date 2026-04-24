@@ -23,6 +23,8 @@ services:
     build: .
     container_name: m-ingestor
     command: ["ingestor"]
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:

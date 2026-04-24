@@ -1,65 +1,65 @@
 feature,label,anchor_feature,anchor_feature_label,abs_correlation
-emb_0,emb_0 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.5420597557016285
-emb_1,emb_1 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_10,emb_10 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7689875892446845
-emb_11,emb_11 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9107891959760097
-emb_12,emb_12 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_13,emb_13 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_14,emb_14 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.37356771346600987
-emb_15,emb_15 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_16,emb_16 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.7498407869865453
-emb_17,emb_17 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_18,emb_18 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7486174073228955
-emb_19,emb_19 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8642645542685948
-emb_2,emb_2 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7174479818423756
-emb_20,emb_20 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.6419601545643282
-emb_21,emb_21 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_22,emb_22 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_23,emb_23 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7087821273096915
-emb_24,emb_24 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8078388063297616
-emb_25,emb_25 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_26,emb_26 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8239629789505218
-emb_27,emb_27 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.6216860763660458
-emb_28,emb_28 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7976859695093825
-emb_29,emb_29 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.916328203709306
-emb_3,emb_3 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_30,emb_30 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_31,emb_31 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7142608450509534
-emb_32,emb_32 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9300280007672381
-emb_33,emb_33 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7110757631810753
-emb_34,emb_34 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_35,emb_35 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_36,emb_36 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9531670116651091
-emb_37,emb_37 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7665558838242845
-emb_38,emb_38 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_39,emb_39 - Feedback Word Len Mean,feedback_word_len_mean,Feedback Word Len Mean,0.9564995948145567
+emb_0,emb_0 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.43036529181411665
+emb_1,emb_1 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8625719472859358
+emb_10,emb_10 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_11,emb_11 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.24180698093206376
+emb_12,emb_12 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.23153582512535306
+emb_13,emb_13 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.5301553970900277
+emb_14,emb_14 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.19762429549368632
+emb_15,emb_15 - Summary Ratio,summary_ratio,Summary Ratio,0.13395231435282048
+emb_16,emb_16 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7688834646728165
+emb_17,emb_17 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7460506951994947
+emb_18,emb_18 - Session Count,session_count,Session Count,0.5365199651702599
+emb_19,emb_19 - Session Count,session_count,Session Count,0.5424498125989916
+emb_2,emb_2 - Session Count,session_count,Session Count,0.5393828408382224
+emb_20,emb_20 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.4285682709388686
+emb_21,emb_21 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.4998751256979268
+emb_22,emb_22 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.34893535828307665
+emb_23,emb_23 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.6577516000291874
+emb_24,emb_24 - Session Count,session_count,Session Count,0.5469187956719067
+emb_25,emb_25 - Session Count,session_count,Session Count,0.5434314416270203
+emb_26,emb_26 - Session Count,session_count,Session Count,0.535684527887623
+emb_27,emb_27 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.1944493910155377
+emb_28,emb_28 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.26175839007650387
+emb_29,emb_29 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_3,emb_3 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.19931140707074133
+emb_30,emb_30 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.605408344993228
+emb_31,emb_31 - Account Age Days,account_age_days,Account Age Days,0.0
+emb_32,emb_32 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.3541503269974862
+emb_33,emb_33 - Session Count,session_count,Session Count,0.5390426036966366
+emb_34,emb_34 - Session Count,session_count,Session Count,0.5503041112738088
+emb_35,emb_35 - Session Count,session_count,Session Count,0.5460415675753003
+emb_36,emb_36 - Session Count,session_count,Session Count,0.5444638542717808
+emb_37,emb_37 - Session Count,session_count,Session Count,0.548769058662851
+emb_38,emb_38 - Session Count,session_count,Session Count,0.4772205207100494
+emb_39,emb_39 - Session Count,session_count,Session Count,0.5446923149215289
 emb_4,emb_4 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_40,emb_40 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7745636518050439
-emb_41,emb_41 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7731344376618944
-emb_42,emb_42 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_43,emb_43 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.88861411812808
-emb_44,emb_44 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7288460616727808
-emb_45,emb_45 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_46,emb_46 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7741138777176364
-emb_47,emb_47 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9666893299597534
-emb_48,emb_48 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.6599048162335311
-emb_49,emb_49 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_5,emb_5 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.9305300102229608
-emb_50,emb_50 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8555251194216229
-emb_51,emb_51 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8197885343177718
-emb_52,emb_52 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8340296503446886
-emb_53,emb_53 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_54,emb_54 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.8061783647083732
-emb_55,emb_55 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7249897208689533
-emb_56,emb_56 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_57,emb_57 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.7538019096774597
-emb_58,emb_58 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7438756170605108
-emb_59,emb_59 - Feedback Char Len Mean,feedback_char_len_mean,Feedback Char Len Mean,0.5887071667506677
-emb_6,emb_6 - Message Count,message_count,Message Count,0.39728370984038364
-emb_60,emb_60 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_61,emb_61 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_62,emb_62 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9185878248977721
-emb_63,emb_63 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.7713958619063143
-emb_7,emb_7 - Session Duration Mean,session_duration_mean,Session Duration Mean,0.7227193634981155
-emb_8,emb_8 - Account Age Days,account_age_days,Account Age Days,0.0
-emb_9,emb_9 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.6962192049000742
+emb_40,emb_40 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.2915181304464737
+emb_41,emb_41 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.37802243908496785
+emb_42,emb_42 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8668238034186506
+emb_43,emb_43 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.36028251039963516
+emb_44,emb_44 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.51172337102772
+emb_45,emb_45 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.3883715459613033
+emb_46,emb_46 - Session Count,session_count,Session Count,0.5468191463607232
+emb_47,emb_47 - Session Count,session_count,Session Count,0.5469098722591398
+emb_48,emb_48 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.4884307270932058
+emb_49,emb_49 - Session Count,session_count,Session Count,0.5608363667469464
+emb_5,emb_5 - Session Count,session_count,Session Count,0.5418559964637926
+emb_50,emb_50 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.3783968905767424
+emb_51,emb_51 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.42210816050980243
+emb_52,emb_52 - Session Count,session_count,Session Count,0.5363670935690508
+emb_53,emb_53 - Session Count,session_count,Session Count,0.5399288032975542
+emb_54,emb_54 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.6041937094913489
+emb_55,emb_55 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.48870890371871273
+emb_56,emb_56 - Session Count,session_count,Session Count,0.5474688362980611
+emb_57,emb_57 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.5240745241872512
+emb_58,emb_58 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.42804258020523966
+emb_59,emb_59 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.5012915382185399
+emb_6,emb_6 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.49445141302422657
+emb_60,emb_60 - Session Count,session_count,Session Count,0.5305291421605136
+emb_61,emb_61 - Session Count,session_count,Session Count,0.5662492198613231
+emb_62,emb_62 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.4133277981013501
+emb_63,emb_63 - Session Count,session_count,Session Count,0.5435598853726045
+emb_7,emb_7 - Contacts Backfilled,contacts_backfilled,Contacts Backfilled,0.2637043766907213
+emb_8,emb_8 - Session Count,session_count,Session Count,0.548858792994849
+emb_9,emb_9 - Account Age Days,account_age_days,Account Age Days,0.0
