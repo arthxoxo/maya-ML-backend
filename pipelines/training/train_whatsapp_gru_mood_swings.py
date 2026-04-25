@@ -192,29 +192,52 @@ def _load_sentiment_messages(sentiment_path: Path, sessions_path: Path) -> pd.Da
         s["sentiment_score"] = np.where(lbl.eq("positive"), 0.25, np.where(lbl.eq("negative"), -0.25, 0.0))
     s["sentiment_score"] = pd.to_numeric(s.get("sentiment_score"), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
 
-    # Additional features for multi-feature GRU input
+    # ── Feature 1: label-derived sentiment signal ──────────────────────────
+    # The raw sentiment_score from RoBERTa is ~82% flat noise in the [0.04, 0.10]
+    # neutral zone — useless for temporal modelling.  Instead, construct a clean
+    # signal from the sentiment_label that gives distinct numeric values.
+    if "sentiment_label" in s.columns:
+        lbl = s["sentiment_label"].fillna("neutral").astype(str).str.strip().str.lower()
+        conf = pd.to_numeric(s.get("sentiment_confidence", 0.5), errors="coerce").fillna(0.5).clip(0.0, 1.0)
+        s["sentiment_signal"] = np.where(
+            lbl == "positive",  conf,
+            np.where(lbl == "negative", -conf, 0.0),
+        ).astype(np.float32)
+    else:
+        # Fallback: use score directly but with wider separation
+        s["sentiment_signal"] = s["sentiment_score"].astype(np.float32)
+
+    # ── Feature 2: sentiment confidence ────────────────────────────────────
     if "sentiment_confidence" in s.columns:
         s["sentiment_confidence"] = pd.to_numeric(s["sentiment_confidence"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
     else:
         s["sentiment_confidence"] = s["sentiment_score"].abs()
 
-    if "message_word_len" in s.columns:
-        s["message_word_len"] = pd.to_numeric(s["message_word_len"], errors="coerce").fillna(0.0)
-    elif "message" in s.columns:
-        s["message_word_len"] = s["message"].fillna("").astype(str).str.split().str.len().fillna(0).astype(float)
+    # ── Feature 3: message word length (log-normalized) ────────────────────
+    # Previous normalization divided by max (6495 words in one outlier) → all
+    # values crushed to ~0.002.  Use log1p + 95th-percentile clamp instead.
+    if "message" in s.columns:
+        raw_wl = s["message"].fillna("").astype(str).str.split().str.len().fillna(0).astype(float)
+    elif "message_word_len" in s.columns:
+        raw_wl = pd.to_numeric(s["message_word_len"], errors="coerce").fillna(0.0)
     else:
-        s["message_word_len"] = 0.0
-    # Normalize message_word_len to [0, 1] range
-    max_wl = s["message_word_len"].max()
-    if max_wl > 0:
-        s["message_word_len_norm"] = (s["message_word_len"] / max_wl).clip(0.0, 1.0).astype(np.float32)
+        raw_wl = pd.Series(0.0, index=s.index)
+    log_wl = np.log1p(raw_wl)
+    p95 = log_wl.quantile(0.95)
+    if p95 > 0:
+        s["message_len_norm"] = (log_wl / p95).clip(0.0, 1.0).astype(np.float32)
     else:
-        s["message_word_len_norm"] = 0.0
+        s["message_len_norm"] = 0.0
 
     s["created_at"] = pd.to_datetime(s.get("created_at"), errors="coerce", utc=True)
     s["order_idx"] = np.arange(len(s))
     s = s.sort_values(["user_id", "created_at", "order_idx"], kind="mergesort").reset_index(drop=True)
-    return s[["user_id", "created_at", "sentiment_score", "sentiment_confidence", "message_word_len_norm"]]
+
+    # ── Feature 4: score change (delta from previous message in session) ───
+    # This is the signal most directly relevant for "mood swing" detection.
+    s["score_change"] = s.groupby("user_id")["sentiment_signal"].diff().fillna(0.0).clip(-2.0, 2.0).astype(np.float32)
+
+    return s[["user_id", "created_at", "sentiment_signal", "sentiment_confidence", "message_len_norm", "score_change"]]
 
 
 def _build_samples(
@@ -222,8 +245,8 @@ def _build_samples(
     sequence_length: int,
     min_user_msgs: int,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-    """Build multi-feature sequences: [sentiment_score, sentiment_confidence, message_word_len_norm]."""
-    feature_cols = ["sentiment_score", "sentiment_confidence", "message_word_len_norm"]
+    """Build multi-feature sequences: [sentiment_signal, confidence, message_len, score_change]."""
+    feature_cols = ["sentiment_signal", "sentiment_confidence", "message_len_norm", "score_change"]
     n_features = len(feature_cols)
 
     seq_x: list[np.ndarray] = []
@@ -233,7 +256,7 @@ def _build_samples(
     eligible_users = 0
     for user_id, grp in df.groupby("user_id", sort=False):
         values = grp[feature_cols].astype(float).to_numpy()  # shape: (n_msgs, n_features)
-        targets = grp["sentiment_score"].astype(float).to_numpy()
+        targets = grp["sentiment_signal"].astype(float).to_numpy()
         if len(values) < max(min_user_msgs, sequence_length + 1):
             continue
         eligible_users += 1
@@ -424,11 +447,11 @@ def _summarize_users(
     pred_df["abs_err"] = (pred_df["target"] - pred_df["pred_next_sentiment"]).abs()
 
     # Actual sentiment volatility from raw timeline.
-    raw = df.groupby("user_id", as_index=False).agg(messages=("sentiment_score", "size"))
+    raw = df.groupby("user_id", as_index=False).agg(messages=("sentiment_signal", "size"))
     act = (
-        df.sort_values(["user_id", "created_at", "sentiment_score"], kind="mergesort")
+        df.sort_values(["user_id", "created_at", "sentiment_signal"], kind="mergesort")
         .groupby("user_id", as_index=False)
-        .apply(lambda g: pd.Series({"actual_volatility": float(g["sentiment_score"].diff().abs().mean() or 0.0)}))
+        .apply(lambda g: pd.Series({"actual_volatility": float(g["sentiment_signal"].diff().abs().mean() or 0.0)}))
         .reset_index(drop=True)
     )
 
@@ -442,8 +465,8 @@ def _summarize_users(
         .apply(
             lambda g: pd.Series(
                 {
-                    "recent_avg": float(g["sentiment_score"].tail(5).mean() if len(g) >= 1 else 0.0),
-                    "prior_avg": float(g["sentiment_score"].iloc[-10:-5].mean() if len(g) >= 10 else g["sentiment_score"].head(5).mean()),
+                    "recent_avg": float(g["sentiment_signal"].tail(5).mean() if len(g) >= 1 else 0.0),
+                    "prior_avg": float(g["sentiment_signal"].iloc[-10:-5].mean() if len(g) >= 10 else g["sentiment_signal"].head(5).mean()),
                 }
             )
         )
@@ -544,7 +567,8 @@ def main() -> None:
     training_ran = False
     if model_path.exists() and not args.force_retrain:
         print(f"Loading existing GRU mood model from {model_path}")
-        model = MoodGRU(hidden=max(8, int(args.hidden_size)))
+        input_size = x.shape[2] if x.ndim == 3 else 1
+        model = MoodGRU(input_size=input_size, hidden=max(8, int(args.hidden_size)))
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
         train_loss = float("nan")
         val_mse, val_baseline_mse = _evaluate_gru(model, x, y, train_idx, val_idx)
