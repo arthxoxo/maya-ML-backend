@@ -912,24 +912,70 @@ def main() -> None:
     # Save per-user predictions for ALL users (960+) so the dashboard shows coverage for the entire dataset.
     proba_all = model.predict_proba(X_full)[:, 1]
     pred_all = (proba_all >= 0.5).astype(int)
-    
+
     # Align targets (some will be NaN if the user wasn't in the training set)
     full_target_alignment = emb[["user_id"]].merge(user_targets, on="user_id", how="left")["target"]
-    
+
+    # Detect zero-feature users: these have NO behavioral signal (all sentiment/activity
+    # features are 0.0), so XGBoost maps them to the same leaf node, producing identical
+    # predictions with false confidence.  Flag them as 'insufficient_data' so the
+    # dashboard doesn't treat a data gap as a real negative prediction.
+    #
+    # Two tiers of detection:
+    #  1) ALL behavioral features are zero → no data at all
+    #  2) Has some metadata (sessions, etc.) but zero sentiment features → no message
+    #     content was analysed, so the sentiment prediction is meaningless
+    sentiment_signal_cols = [c for c in behavioral_feature_cols
+                            if c in ("avg_sentiment", "sentiment_std", "negative_msg_ratio",
+                                     "positive_msg_ratio", "neutral_msg_ratio",
+                                     "sentiment_volatility", "total_messages_sent")]
+    if behavioral_feature_cols:
+        all_behavioral_zero = ~np.any(X_full[behavioral_feature_cols].values != 0.0, axis=1)
+        if sentiment_signal_cols:
+            all_sentiment_zero = ~np.any(X_full[sentiment_signal_cols].values != 0.0, axis=1)
+        else:
+            all_sentiment_zero = np.zeros(len(X_full), dtype=bool)
+        has_any_signal = ~(all_behavioral_zero | all_sentiment_zero)
+    else:
+        has_any_signal = np.ones(len(X_full), dtype=bool)
+
+    predicted_class = np.where(
+        ~has_any_signal, "insufficient_data",
+        np.where(pred_all == 1, "positive", "negative"),
+    )
+    confidence = np.where(
+        ~has_any_signal, 0.0,
+        (2.0 * np.abs(proba_all - 0.5)).astype(float),
+    )
+    n_insufficient = int((~has_any_signal).sum())
+    if n_insufficient > 0:
+        print(
+            f"[info] {n_insufficient}/{len(X_full)} users have zero sentiment/behavioral features "
+            f"→ marked as 'insufficient_data' (not enough signal for reliable prediction)"
+        )
+
     pred_df = pd.DataFrame(
         {
             "user_id": emb["user_id"].astype(int),
             "target": full_target_alignment,
             "pred_label": pred_all.astype(int),
             "pred_prob_positive": proba_all.astype(float),
-            "predicted_class": np.where(pred_all == 1, "positive", "negative"),
-            "confidence": (2.0 * np.abs(proba_all - 0.5)).astype(float),
+            "predicted_class": predicted_class,
+            "confidence": confidence,
         }
     ).sort_values("pred_prob_positive", ascending=False)
     save_artifact_df(pred_df, "xgb_user_predictions", Path(args.out_predictions), index=False)
 
-    pred_majority_share = float(max((pred_all == 0).mean(), (pred_all == 1).mean()))
-    pred_prob_std = float(np.std(proba_all))
+    # Compute prediction distribution metrics EXCLUDING insufficient_data users,
+    # which would otherwise inflate the negative class share and mask real model quality.
+    valid_preds = pred_all[has_any_signal]
+    valid_proba = proba_all[has_any_signal]
+    if len(valid_preds) > 0:
+        pred_majority_share = float(max((valid_preds == 0).mean(), (valid_preds == 1).mean()))
+        pred_prob_std = float(np.std(valid_proba))
+    else:
+        pred_majority_share = 1.0
+        pred_prob_std = 0.0
     collapse_risk_warning = ""
     if pred_majority_share >= 0.90 and pred_prob_std <= 0.08:
         collapse_risk_warning = (
@@ -944,7 +990,9 @@ def main() -> None:
         "human_label_rows": target_meta.get("human_label_rows", 0),
         "pseudo_label_rows": target_meta.get("pseudo_label_rows", 0),
         "labeled_users": int(train_mask.sum()),
-        "predicted_users": int(len(emb)),
+        "predicted_users": int(has_any_signal.sum()),
+        "insufficient_data_users": n_insufficient,
+        "total_users": int(len(emb)),
         "train_rows": int(len(X_train_model)),
         "test_rows": int(len(X_test)),
         "train_split_neg_raw": int(train_neg_raw),
