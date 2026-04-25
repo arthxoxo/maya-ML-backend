@@ -23,6 +23,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app_config import RAW_DATA_DIR, SECRET_DATA_DIR, SENTIMENT_ARTIFACT_DIR
 from lib.online_store import save_artifact_df
 
+_CTX_SEPARATOR = " [CTX] "
+_MAX_CONTEXT_CHARS = 512
+
+
+def _build_batch_context_column(df: pd.DataFrame, text_col: str) -> pd.Series:
+    """Build a context-enriched text column using the previous 2 messages
+    within each session, sorted by created_at.
+
+    Batch-mode equivalent of the streaming session buffer in
+    ``flink_sentiment_job.py``.  Uses pandas ``groupby`` + ``shift``
+    so no mutable state is needed.
+    """
+    work = df[["session_id", text_col]].copy() if "session_id" in df.columns else df[[text_col]].copy()
+    work["_text_clean"] = work[text_col].fillna("").astype(str).str.strip()
+
+    if "session_id" not in work.columns:
+        # No session info — fall back to raw text (no context)
+        return work["_text_clean"].str[:_MAX_CONTEXT_CHARS]
+
+    work["_prev1"] = work.groupby("session_id")["_text_clean"].shift(1).fillna("")
+    work["_prev2"] = work.groupby("session_id")["_text_clean"].shift(2).fillna("")
+
+    def _concat(row):
+        parts = [p for p in [row["_prev2"], row["_prev1"]] if p]
+        if parts:
+            return (_CTX_SEPARATOR.join(parts) + _CTX_SEPARATOR + row["_text_clean"])[:_MAX_CONTEXT_CHARS]
+        return row["_text_clean"][:_MAX_CONTEXT_CHARS]
+
+    return work.apply(_concat, axis=1)
+
 
 def _find_csv(filename: str) -> Path:
     """Try secret_data/, then RAW_DATA_DIR, for both naming conventions."""
@@ -80,6 +110,13 @@ def main():
 
         print(f"Processing {len(df):,} items from {input_file}...")
 
+        # Sort by session + time so context window is chronologically correct
+        if "session_id" in df.columns and "created_at" in df.columns:
+            df = df.sort_values(["session_id", "created_at"], kind="mergesort").reset_index(drop=True)
+
+        # Build context-enriched text column (previous 2 msgs from same session)
+        context_texts = _build_batch_context_column(df, text_col)
+
         if fast_mode:
             print("[Fast Mode] Using heuristic sentiment (bypassing Transformer)...")
             import re
@@ -110,7 +147,7 @@ def main():
                 lbl = "positive" if raw > 0.03 else ("negative" if raw < -0.03 else "neutral")
                 return round(raw, 4), round(max(abs(raw), 0.1), 4), lbl
 
-            results_list = [_heuristic(t) for t in df[text_col].fillna("").astype(str).tolist()]
+            results_list = [_heuristic(t) for t in context_texts.tolist()]
             df["sentiment_score"] = [r[0] for r in results_list]
             df["sentiment_confidence"] = [r[1] for r in results_list]
             df["sentiment_label"] = [r[2] for r in results_list]
@@ -133,7 +170,7 @@ def main():
                 pipeline_initialized = True
 
             batch_size = 32
-            texts = df[text_col].fillna("").astype(str).tolist()
+            texts = context_texts.tolist()
             scores = []
             confs = []
             labels = []

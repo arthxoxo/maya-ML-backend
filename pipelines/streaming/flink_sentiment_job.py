@@ -48,6 +48,17 @@ def _resolve_java_home() -> str:
 
 _HF_SENTIMENT_PIPE = None
 _HF_SENTIMENT_UNAVAILABLE = False
+
+# Session-scoped message buffer for context-aware sentiment inference.
+# Keyed by session_id, each value is a list of the last 2 user messages.
+# Module-level state is used because Flink Python UDFs execute in a single
+# worker process — this buffer persists across calls within the same job
+# execution. It resets if the Flink worker restarts (acceptable trade-off
+# for streaming; batch mode in bulk_sentiment_processor.py uses pandas
+# shift instead).
+_SESSION_MSG_BUFFER: dict[int, list[str]] = {}
+_CTX_SEPARATOR = " [CTX] "
+_MAX_CONTEXT_CHARS = 512
 _NEGATIVE_TERMS = {
     "bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
     "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
@@ -63,6 +74,38 @@ _POSITIVE_TERMS = {
     "quick", "convenient", "reliable", "works", "working", "fixed", "solved",
     "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha",
 }
+
+
+def _build_context_string(current_msg: str, session_id: int | None) -> str:
+    """Prepend prior messages from the same session using [CTX] separator.
+
+    Returns a single string truncated to _MAX_CONTEXT_CHARS that the model
+    will score.  The buffer is *read* here but not mutated — the caller is
+    responsible for updating it after scoring.
+    """
+    msg = str(current_msg or "").strip()
+    if not msg:
+        return ""
+    if session_id is None:
+        return msg[:_MAX_CONTEXT_CHARS]
+
+    prior = _SESSION_MSG_BUFFER.get(int(session_id), [])
+    if prior:
+        context = _CTX_SEPARATOR.join(prior) + _CTX_SEPARATOR + msg
+    else:
+        context = msg
+    return context[:_MAX_CONTEXT_CHARS]
+
+
+def _update_session_buffer(session_id: int | None, message: str) -> None:
+    """Append *message* to the session buffer, keeping only the last 2."""
+    if session_id is None:
+        return
+    sid = int(session_id)
+    buf = _SESSION_MSG_BUFFER.setdefault(sid, [])
+    buf.append(str(message or "").strip())
+    if len(buf) > 2:
+        _SESSION_MSG_BUFFER[sid] = buf[-2:]
 
 
 def _heuristic_sentiment_score(text: str) -> float:
@@ -118,8 +161,14 @@ def _get_hf_sentiment_pipe():
     return _HF_SENTIMENT_PIPE
 
 
-def _hf_sentiment_full(text: str) -> tuple[float, float]:
-    msg = str(text or "").strip()
+def _hf_sentiment_full(context_text: str) -> tuple[float, float]:
+    """Score a (possibly context-enriched) string.
+
+    *context_text* is the result of ``_build_context_string`` — it may
+    contain ``[CTX]`` separators with prior messages prepended.  The
+    string is already truncated to ``_MAX_CONTEXT_CHARS``.
+    """
+    msg = str(context_text or "").strip()
     if not msg:
         return 0.0, 0.0
 
@@ -149,8 +198,11 @@ def _hf_sentiment_full(text: str) -> tuple[float, float]:
     DataTypes.FIELD("score", DataTypes.DOUBLE()),
     DataTypes.FIELD("confidence", DataTypes.DOUBLE())
 ]))
-def compute_sentiment_all(text: str) -> Row:
-    score, conf = _hf_sentiment_full(text)
+def compute_sentiment_all(text: str, session_id: int) -> Row:
+    """Score a message with conversational context from the same session."""
+    context_text = _build_context_string(text, session_id)
+    score, conf = _hf_sentiment_full(context_text)
+    _update_session_buffer(session_id, text)
     return Row(round(float(score), 4), round(float(conf), 4))
 
 
@@ -492,7 +544,7 @@ def main() -> None:
                 cost_usd,
                 recipient_name,
                 status,
-                compute_sentiment_all(message) AS s
+                compute_sentiment_all(message, session_id) AS s
             FROM raw_whatsapp_messages
             WHERE LOWER(COALESCE(`role`, '')) = 'user'
         )
