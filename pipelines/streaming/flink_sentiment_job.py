@@ -185,10 +185,19 @@ def _get_hf_sentiment_pipe():
         from transformers import pipeline
 
         _dev = resolve_device()
+
+        # Prefer fine-tuned model if available, else fall back to base CardiffNLP
+        from app_config import ARTIFACTS_DIR as _ARTIFACTS_DIR
+        _finetuned_path = _ARTIFACTS_DIR / "models" / "finetuned_sentiment"
+        if _finetuned_path.exists() and (_finetuned_path / "config.json").exists():
+            _model_id = str(_finetuned_path)
+        else:
+            _model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+
         _HF_SENTIMENT_PIPE = pipeline(
             "sentiment-analysis",
-            model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-            tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
+            model=_model_id,
+            tokenizer=_model_id,
             device=str(_dev),
             top_k=None,  # return full softmax distribution
         )
@@ -239,7 +248,7 @@ def _hf_sentiment_full(context_text: str, raw_text: str = "") -> tuple[float, fl
             else:
                 probs["neutral"] = p
 
-        model_score = probs["positive"] - probs["negative"]
+        model_score = (probs["positive"] - probs["negative"]) * (1.0 - probs["neutral"])
         model_conf = 1.0 - probs["neutral"]
 
         # Emoji + heuristic blending
@@ -290,9 +299,9 @@ def compute_sentiment_all(text: str, session_id: int) -> Row:
 def sentiment_label(score: float) -> str:
     if score is None:
         return "neutral"
-    if score > 0.05:
+    if score > 0.15:
         return "positive"
-    if score < -0.05:
+    if score < -0.15:
         return "negative"
     return "neutral"
 

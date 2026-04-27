@@ -125,13 +125,19 @@ def _softmax_to_score(result_list: list[dict]) -> tuple[float, float, str]:
         else:
             probs["neutral"] = p
 
-    score = probs["positive"] - probs["negative"]
+    raw_score = probs["positive"] - probs["negative"]
     confidence = 1.0 - probs["neutral"]
 
-    # Derive label from the continuous score
-    if score > 0.05:
+    # Dampen score by confidence: when P(neutral) is high, the P(pos)-P(neg)
+    # difference is noise, not real sentiment.  Multiplying by confidence
+    # pulls uncertain predictions toward zero so greetings like "Hello" and
+    # functional messages don't get falsely classified as positive.
+    score = raw_score * confidence
+
+    # Derive label from the dampened score
+    if score > 0.15:
         label = "positive"
-    elif score < -0.05:
+    elif score < -0.15:
         label = "negative"
     else:
         label = "neutral"
@@ -173,9 +179,34 @@ def _blend_scores(
     if heur_score * model_score > 0:
         conf = min(conf + 0.05, 1.0)
 
-    if final > 0.05:
+    # ── Greeting / phatic neutralizer ──────────────────────────────────────
+    # Short messages that are greetings, single-word replies, or non-text
+    # content should never be classified as positive/negative regardless of
+    # what the model says.  CardiffNLP has a strong positive bias for
+    # greetings because Twitter training data associates them with friendly
+    # interactions.
+    _clean = str(text or "").strip().lower()
+    _clean_alpha = re.sub(r"[^a-z]", "", _clean)
+    _GREETINGS = {
+        "hi", "hii", "hiii", "hey", "hello", "helo", "helo", "yo", "sup",
+        "hola", "namaste", "heya", "hiya", "howdy",
+        "yes", "no", "ok", "okay", "k", "yep", "yea", "yeah", "nah", "nope",
+        "hmm", "hm", "ohh", "oh", "ah", "umm", "um",
+        "bye", "goodnight", "gn", "gm", "goodmorning",
+    }
+    is_greeting = _clean_alpha in _GREETINGS
+    is_very_short = len(_clean) <= 20
+    has_no_emotional_words = (heur_score == 0.0 and emoji_count == 0)
+    # Also catch emails, URLs, and single-word non-emotional tokens
+    is_non_text = bool(re.match(r"^[\w.@+\-/:#?=&]+$", _clean))
+
+    if is_very_short and (is_greeting or (has_no_emotional_words and is_non_text)):
+        final = final * 0.3  # heavily dampen, don't zero out completely
+        final = float(max(min(final, 1.0), -1.0))
+
+    if final > 0.15:
         label = "positive"
-    elif final < -0.05:
+    elif final < -0.15:
         label = "negative"
     else:
         label = "neutral"
@@ -316,11 +347,19 @@ def main():
                 _dev = resolve_device()
                 device = str(_dev)
 
-                print("Initializing CardiffNLP RoBERTa model (this will be used for all files)...")
+                # Prefer fine-tuned model if available, else fall back to base CardiffNLP
+                _finetuned_path = SENTIMENT_ARTIFACT_DIR.parent / "models" / "finetuned_sentiment"
+                if _finetuned_path.exists() and (_finetuned_path / "config.json").exists():
+                    _model_id = str(_finetuned_path)
+                    print(f"Using fine-tuned sentiment model from {_finetuned_path}")
+                else:
+                    _model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+                    print("Using base CardiffNLP RoBERTa model (no fine-tuned model found)")
+
                 pipe = pipeline(
                     "sentiment-analysis",
-                    model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-                    tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
+                    model=_model_id,
+                    tokenizer=_model_id,
                     device=device,
                     top_k=None,  # return full softmax distribution
                 )

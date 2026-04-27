@@ -859,9 +859,9 @@ def load_user_profiles() -> pd.DataFrame:
 
 
 def polarity_label(p: float) -> str:
-    if p > 0.05:
+    if p > 0.15:
         return "positive"
-    if p < -0.04:
+    if p < -0.15:
         return "negative"
     return "neutral"
 
@@ -1591,17 +1591,13 @@ def load_sentiment_table(refresh_nonce: str | None = None) -> pd.DataFrame:
                 else:
                     cached["created_at"] = pd.NaT
 
-                cached = enforce_cardiff_sentiment(
-                    cached,
-                    text_col="message",
-                    group_col="user_id",
-                    time_col="created_at",
-                    context_window=4,
-                )
+                # Trust the pipeline's scores and labels
                 cached["polarity"] = pd.to_numeric(cached.get("sentiment_score"), errors="coerce").fillna(0.0)
                 if "subjectivity" not in cached.columns:
                     cached["subjectivity"] = cached["polarity"].abs().clip(0.0, 1.0)
                 cached["subjectivity"] = pd.to_numeric(cached.get("subjectivity"), errors="coerce").fillna(0.0)
+                
+                # Trust the pipeline's sentiment label completely. Only fallback to polarity_label if missing.
                 lbl = cached.get("sentiment_label", "").fillna("").astype(str).str.lower().str.strip()
                 cached["sentiment"] = lbl.where(lbl.isin(["positive", "negative", "neutral"]), cached["polarity"].apply(polarity_label))
                 if "source" not in cached.columns:
@@ -3888,19 +3884,18 @@ def main() -> None:
     sentiment_df = load_sentiment_table(refresh_nonce)
     
     if not sentiment_df.empty:
-        # Re-calibrate sentiment labels based on user's granularity preference
-        if "polarity" in sentiment_df.columns:
-            new_labels, _ = calibrate_sentiment_labels(
-                sentiment_df["polarity"], 
-                target_neutral_share=neutral_target
+        # Use pipeline-produced sentiment labels directly.
+        # The bulk_sentiment_processor now produces accurate labels via
+        # confidence-dampened scoring + greeting neutralizer, so no
+        # dashboard-side recalibration is needed.
+        if "sentiment_label" in sentiment_df.columns:
+            sentiment_df["sentiment"] = sentiment_df["sentiment_label"].fillna("neutral").astype(str).str.lower().str.strip()
+        elif "polarity" in sentiment_df.columns:
+            # Fallback: derive from polarity using the same thresholds as the pipeline
+            sentiment_df["sentiment"] = np.where(
+                sentiment_df["polarity"] > 0.15, "positive",
+                np.where(sentiment_df["polarity"] < -0.15, "negative", "neutral")
             )
-            sentiment_df["sentiment"] = new_labels
-        elif "sentiment_score" in sentiment_df.columns:
-            new_labels, _ = calibrate_sentiment_labels(
-                sentiment_df["sentiment_score"], 
-                target_neutral_share=neutral_target
-            )
-            sentiment_df["sentiment"] = new_labels
 
     if scores.empty:
         has_files, filenames = gnn_output_file_status()
