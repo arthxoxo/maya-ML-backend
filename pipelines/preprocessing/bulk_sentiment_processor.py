@@ -10,6 +10,7 @@ artifacts/sentiment/. This file is then consumed by:
 """
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,161 @@ from lib.online_store import save_artifact_df
 
 _CTX_SEPARATOR = " [CTX] "
 _MAX_CONTEXT_CHARS = 512
+
+# ── Emoji sentiment map ────────────────────────────────────────────────────
+# RoBERTa's tokenizer strips most emojis.  We extract this signal separately
+# and blend it into the final score so WhatsApp-style affective cues survive.
+_EMOJI_SENTIMENT: dict[str, float] = {
+    # Positive
+    "😊": 0.6, "😄": 0.7, "😃": 0.7, "😁": 0.6, "🙂": 0.3, "😀": 0.6,
+    "🥰": 0.8, "😍": 0.8, "❤️": 0.7, "💕": 0.6, "💖": 0.7, "🩷": 0.6,
+    "👍": 0.5, "👏": 0.5, "🙏": 0.5, "🤗": 0.6, "😘": 0.7, "🎉": 0.7,
+    "✨": 0.4, "💯": 0.6, "🔥": 0.4, "😂": 0.4, "🤣": 0.4, "💪": 0.5,
+    "🥳": 0.7, "☺️": 0.5, "😇": 0.5, "🫶": 0.6,
+    # Negative
+    "😢": -0.6, "😭": -0.7, "😞": -0.6, "😔": -0.5, "😟": -0.5,
+    "😤": -0.7, "😡": -0.8, "🤬": -0.9, "😠": -0.7, "💔": -0.7,
+    "👎": -0.5, "😩": -0.6, "😫": -0.6, "🙁": -0.4, "☹️": -0.5,
+    "😰": -0.5, "😥": -0.5, "😓": -0.4, "🤮": -0.7, "🤢": -0.5,
+    "😒": -0.4, "🥺": -0.3, "😿": -0.5,
+}
+
+_HEURISTIC_NEG = {
+    "bad", "worse", "worst", "hate", "angry", "upset", "frustrated", "annoyed",
+    "terrible", "awful", "slow", "broken", "error", "issue", "problem", "failed",
+    "not", "never", "no", "poor", "difficult", "hard", "bug", "crash",
+    "disappointing", "disappointed", "useless", "boring", "confused", "confusing",
+    "stuck", "waiting", "lag", "wrong", "miss", "missed", "lost", "waste",
+    "annoying", "painful", "sad", "unhappy", "worried", "stress", "stressed",
+    "tired", "sucks", "horrible",
+}
+_HEURISTIC_POS = {
+    "good", "great", "awesome", "nice", "love", "happy", "thanks", "thankyou",
+    "resolved", "perfect", "excellent", "fast", "smooth", "best", "cool", "super",
+    "amazing", "wonderful", "helpful", "fantastic", "brilliant", "easy",
+    "quick", "convenient", "reliable", "works", "working", "fixed", "solved",
+    "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha",
+}
+
+
+def _extract_emoji_score(text: str) -> tuple[float, int]:
+    """Return (weighted_emoji_sentiment, emoji_count) from text."""
+    total = 0.0
+    count = 0
+    for ch in text:
+        if ch in _EMOJI_SENTIMENT:
+            total += _EMOJI_SENTIMENT[ch]
+            count += 1
+    # Also check multi-char emoji sequences (e.g. ❤️, ☺️)
+    for emoji, val in _EMOJI_SENTIMENT.items():
+        if len(emoji) > 1 and emoji in text:
+            total += val
+            count += 1
+    if count == 0:
+        return 0.0, 0
+    return float(max(min(total / count, 1.0), -1.0)), count
+
+
+def _heuristic_score(text: str) -> float:
+    """Keyword-based sentiment score as an ensemble signal."""
+    s = str(text or "").strip().lower()
+    if not s:
+        return 0.0
+    tokens = re.findall(r"[a-z']+", s)
+    if not tokens:
+        return 0.0
+
+    pos = sum(1 for t in tokens if t in _HEURISTIC_POS)
+    neg = sum(1 for t in tokens if t in _HEURISTIC_NEG)
+    denom = max(len(tokens), 4) if len(tokens) <= 8 else max(len(tokens), 6)
+    raw = (pos - neg) / denom
+
+    if "!" in s:
+        raw *= 1.2
+    if "?" in s and neg > 0:
+        raw -= 0.05
+    # Negation-aware bigrams
+    if any(w in s for w in ["not good", "not happy", "never again", "don't like", "can't"]):
+        raw -= 0.2
+    if any(w in s for w in ["not bad", "works now", "all good", "thank you", "no problem"]):
+        raw += 0.2
+    return float(max(min(raw * 2.5, 1.0), -1.0))
+
+
+def _softmax_to_score(result_list: list[dict]) -> tuple[float, float, str]:
+    """Convert top_k=None softmax output to (score, confidence, label).
+
+    CardiffNLP labels: negative / neutral / positive.
+    Score  = P(positive) - P(negative)  →  continuous in [-1, +1]
+    Confidence = 1 - P(neutral)         →  how "opinionated" the model is
+    """
+    probs = {"negative": 0.0, "neutral": 0.0, "positive": 0.0}
+    for entry in result_list:
+        lbl = str(entry.get("label", "")).strip().lower()
+        p = float(entry.get("score", 0.0))
+        if "positive" in lbl or lbl in {"label_2", "2"}:
+            probs["positive"] = p
+        elif "negative" in lbl or lbl in {"label_0", "0"}:
+            probs["negative"] = p
+        else:
+            probs["neutral"] = p
+
+    score = probs["positive"] - probs["negative"]
+    confidence = 1.0 - probs["neutral"]
+
+    # Derive label from the continuous score
+    if score > 0.05:
+        label = "positive"
+    elif score < -0.05:
+        label = "negative"
+    else:
+        label = "neutral"
+
+    return round(float(score), 4), round(float(max(confidence, 0.01)), 4), label
+
+
+def _blend_scores(
+    model_score: float,
+    model_confidence: float,
+    text: str,
+) -> tuple[float, float, str]:
+    """Blend model score with emoji and heuristic signals.
+
+    When model confidence is high (> 0.4), trust the model.
+    When low, incorporate heuristic and emoji cues.
+    """
+    emoji_score, emoji_count = _extract_emoji_score(text)
+    heur_score = _heuristic_score(text)
+
+    if model_confidence >= 0.4:
+        # High confidence: model dominates, emoji is a small nudge
+        if emoji_count > 0:
+            final = 0.85 * model_score + 0.15 * emoji_score
+        else:
+            final = model_score
+    else:
+        # Low confidence zone: blend all three signals
+        if emoji_count > 0:
+            final = 0.50 * model_score + 0.25 * heur_score + 0.25 * emoji_score
+        else:
+            final = 0.60 * model_score + 0.40 * heur_score
+
+    final = float(max(min(final, 1.0), -1.0))
+    # Adjust confidence upward if emoji/heuristic agree with model direction
+    conf = model_confidence
+    if emoji_count > 0 and (emoji_score * model_score > 0):
+        conf = min(conf + 0.1, 1.0)
+    if heur_score * model_score > 0:
+        conf = min(conf + 0.05, 1.0)
+
+    if final > 0.05:
+        label = "positive"
+    elif final < -0.05:
+        label = "negative"
+    else:
+        label = "neutral"
+
+    return round(final, 4), round(conf, 4), label
 
 
 def _build_batch_context_column(df: pd.DataFrame, text_col: str) -> pd.Series:
@@ -166,11 +322,13 @@ def main():
                     model="cardiffnlp/twitter-roberta-base-sentiment-latest",
                     tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
                     device=device,
+                    top_k=None,  # return full softmax distribution
                 )
                 pipeline_initialized = True
 
             batch_size = 32
             texts = context_texts.tolist()
+            raw_texts = df[text_col].fillna("").astype(str).tolist()  # original text for emoji/heuristic
             scores = []
             confs = []
             labels = []
@@ -179,20 +337,18 @@ def main():
             desc = f"Sentiment ({input_file})"
             for i in tqdm(range(0, len(texts), batch_size), desc=desc, unit="batch"):
                 batch = [t[:512] for t in texts[i : i + batch_size]]
+                batch_raw = raw_texts[i : i + batch_size]
                 out = pipe(batch, truncation=True, max_length=256)
-                for r in out:
-                    label = r["label"].lower()
-                    score = r["score"]
-                    confs.append(round(score, 4))
-                    labels.append(label)
-                    if "positive" in label or label == "label_2":
-                        scores.append(round(score, 4))
-                    elif "negative" in label or label == "label_0":
-                        scores.append(round(-score, 4))
-                    else:
-                        # Neutral: use a small signed score based on raw confidence
-                        # instead of flat 0.0 to preserve weak signals
-                        scores.append(round(score * 0.1, 4))
+                for j, result_list in enumerate(out):
+                    # result_list is a list of dicts [{label, score}, ...] for all 3 classes
+                    model_score, model_conf, _ = _softmax_to_score(result_list)
+                    raw_text = batch_raw[j] if j < len(batch_raw) else ""
+                    final_score, final_conf, final_label = _blend_scores(
+                        model_score, model_conf, raw_text,
+                    )
+                    scores.append(final_score)
+                    confs.append(final_conf)
+                    labels.append(final_label)
 
             print(f"Inference complete in {time.time() - start_time:.2f}s")
             df["sentiment_score"] = scores

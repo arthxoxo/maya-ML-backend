@@ -75,6 +75,42 @@ _POSITIVE_TERMS = {
     "appreciate", "glad", "pleased", "thx", "ty", "yay", "wow", "lol", "haha",
 }
 
+# ── Emoji sentiment map ────────────────────────────────────────────────────
+# RoBERTa's tokenizer strips most emojis.  We extract this signal separately
+# and blend it into the final score so WhatsApp-style affective cues survive.
+_EMOJI_SENTIMENT: dict[str, float] = {
+    # Positive
+    "\U0001f60a": 0.6, "\U0001f604": 0.7, "\U0001f603": 0.7, "\U0001f601": 0.6, "\U0001f642": 0.3, "\U0001f600": 0.6,
+    "\U0001f970": 0.8, "\U0001f60d": 0.8, "\u2764\ufe0f": 0.7, "\U0001f495": 0.6, "\U0001f496": 0.7, "\U0001fa77": 0.6,
+    "\U0001f44d": 0.5, "\U0001f44f": 0.5, "\U0001f64f": 0.5, "\U0001f917": 0.6, "\U0001f618": 0.7, "\U0001f389": 0.7,
+    "\u2728": 0.4, "\U0001f4af": 0.6, "\U0001f525": 0.4, "\U0001f602": 0.4, "\U0001f923": 0.4, "\U0001f4aa": 0.5,
+    "\U0001f973": 0.7, "\u263a\ufe0f": 0.5, "\U0001f607": 0.5, "\U0001faf6": 0.6,
+    # Negative
+    "\U0001f622": -0.6, "\U0001f62d": -0.7, "\U0001f61e": -0.6, "\U0001f614": -0.5, "\U0001f61f": -0.5,
+    "\U0001f624": -0.7, "\U0001f621": -0.8, "\U0001f92c": -0.9, "\U0001f620": -0.7, "\U0001f494": -0.7,
+    "\U0001f44e": -0.5, "\U0001f629": -0.6, "\U0001f62b": -0.6, "\U0001f641": -0.4, "\u2639\ufe0f": -0.5,
+    "\U0001f630": -0.5, "\U0001f625": -0.5, "\U0001f613": -0.4, "\U0001f92e": -0.7, "\U0001f922": -0.5,
+    "\U0001f612": -0.4, "\U0001f97a": -0.3, "\U0001f63f": -0.5,
+}
+
+
+def _extract_emoji_score(text: str) -> tuple[float, int]:
+    """Return (weighted_emoji_sentiment, emoji_count) from text."""
+    total = 0.0
+    count = 0
+    for ch in text:
+        if ch in _EMOJI_SENTIMENT:
+            total += _EMOJI_SENTIMENT[ch]
+            count += 1
+    # Also check multi-char emoji sequences (e.g. \u2764\ufe0f)
+    for emoji, val in _EMOJI_SENTIMENT.items():
+        if len(emoji) > 1 and emoji in text:
+            total += val
+            count += 1
+    if count == 0:
+        return 0.0, 0
+    return float(max(min(total / count, 1.0), -1.0)), count
+
 
 def _build_context_string(current_msg: str, session_id: int | None) -> str:
     """Prepend prior messages from the same session using [CTX] separator.
@@ -154,6 +190,7 @@ def _get_hf_sentiment_pipe():
             model="cardiffnlp/twitter-roberta-base-sentiment-latest",
             tokenizer="cardiffnlp/twitter-roberta-base-sentiment-latest",
             device=str(_dev),
+            top_k=None,  # return full softmax distribution
         )
     except Exception:
         _HF_SENTIMENT_UNAVAILABLE = True
@@ -161,12 +198,15 @@ def _get_hf_sentiment_pipe():
     return _HF_SENTIMENT_PIPE
 
 
-def _hf_sentiment_full(context_text: str) -> tuple[float, float]:
-    """Score a (possibly context-enriched) string.
+def _hf_sentiment_full(context_text: str, raw_text: str = "") -> tuple[float, float]:
+    """Score a (possibly context-enriched) string with ensemble blending.
 
     *context_text* is the result of ``_build_context_string`` — it may
     contain ``[CTX]`` separators with prior messages prepended.  The
     string is already truncated to ``_MAX_CONTEXT_CHARS``.
+
+    *raw_text* is the original message (before context prepend) used for
+    emoji and heuristic extraction.
     """
     msg = str(context_text or "").strip()
     if not msg:
@@ -175,23 +215,62 @@ def _hf_sentiment_full(context_text: str) -> tuple[float, float]:
     pipe = _get_hf_sentiment_pipe()
     if pipe is None:
         val = _heuristic_sentiment_score(msg)
-        return val, abs(val)
+        emoji_s, emoji_n = _extract_emoji_score(raw_text or msg)
+        if emoji_n > 0:
+            val = 0.6 * val + 0.4 * emoji_s
+        return float(max(min(val, 1.0), -1.0)), abs(val)
 
     try:
         out = pipe(msg[:512], truncation=True, max_length=256)
-        rec = out[0] if isinstance(out, list) and out else {}
-        label = str(rec.get("label", "")).strip().lower()
-        score = float(rec.get("score", 0.0))
-        if "positive" in label or label in {"label_2", "2"}:
-            val = score
-        elif "negative" in label or label in {"label_0", "0"}:
-            val = -score
+        # top_k=None returns list of dicts for all 3 classes
+        result_list = out if isinstance(out, list) and out and isinstance(out[0], dict) and "label" in out[0] else []
+        # Handle nested list from batch mode (shouldn't happen for single input)
+        if result_list and isinstance(result_list[0], list):
+            result_list = result_list[0]
+
+        probs = {"negative": 0.0, "neutral": 0.0, "positive": 0.0}
+        for entry in result_list:
+            lbl = str(entry.get("label", "")).strip().lower()
+            p = float(entry.get("score", 0.0))
+            if "positive" in lbl or lbl in {"label_2", "2"}:
+                probs["positive"] = p
+            elif "negative" in lbl or lbl in {"label_0", "0"}:
+                probs["negative"] = p
+            else:
+                probs["neutral"] = p
+
+        model_score = probs["positive"] - probs["negative"]
+        model_conf = 1.0 - probs["neutral"]
+
+        # Emoji + heuristic blending
+        emoji_s, emoji_n = _extract_emoji_score(raw_text or msg)
+        heur_s = _heuristic_sentiment_score(raw_text or msg)
+
+        if model_conf >= 0.4:
+            if emoji_n > 0:
+                final = 0.85 * model_score + 0.15 * emoji_s
+            else:
+                final = model_score
         else:
-            val = 0.0
-        return float(max(min(val, 1.0), -1.0)), score
+            if emoji_n > 0:
+                final = 0.50 * model_score + 0.25 * heur_s + 0.25 * emoji_s
+            else:
+                final = 0.60 * model_score + 0.40 * heur_s
+
+        final = float(max(min(final, 1.0), -1.0))
+        conf = max(model_conf, 0.01)
+        if emoji_n > 0 and (emoji_s * model_score > 0):
+            conf = min(conf + 0.1, 1.0)
+        if heur_s * model_score > 0:
+            conf = min(conf + 0.05, 1.0)
+
+        return round(final, 4), round(conf, 4)
     except Exception:
         val = _heuristic_sentiment_score(msg)
-        return val, abs(val)
+        emoji_s, emoji_n = _extract_emoji_score(raw_text or msg)
+        if emoji_n > 0:
+            val = 0.6 * val + 0.4 * emoji_s
+        return float(max(min(val, 1.0), -1.0)), abs(val)
 
 
 @udf(result_type=DataTypes.ROW([
@@ -200,8 +279,9 @@ def _hf_sentiment_full(context_text: str) -> tuple[float, float]:
 ]))
 def compute_sentiment_all(text: str, session_id: int) -> Row:
     """Score a message with conversational context from the same session."""
+    raw_text = str(text or "").strip()
     context_text = _build_context_string(text, session_id)
-    score, conf = _hf_sentiment_full(context_text)
+    score, conf = _hf_sentiment_full(context_text, raw_text=raw_text)
     _update_session_buffer(session_id, text)
     return Row(round(float(score), 4), round(float(conf), 4))
 
