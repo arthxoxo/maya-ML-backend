@@ -173,7 +173,7 @@ def preprocess_users(users: pd.DataFrame) -> pd.DataFrame:
     ]]
 
 
-def persona_name(row: pd.Series, age_q2: float, msg_q2: float) -> str:
+def persona_name(row: pd.Series, age_q2: float, msg_q2: float, msg_q3: float) -> str:
     s = float(row.get("avg_sentiment", 0.0))
     neg_ratio = float(row.get("neg_ratio", 0.0))
     pos_ratio = float(row.get("pos_ratio", 0.0))
@@ -181,15 +181,20 @@ def persona_name(row: pd.Series, age_q2: float, msg_q2: float) -> str:
     msgs = float(row.get("msg_count", 0.0))
 
     if s < -0.03 or neg_ratio >= 0.33:
-        mood = "Frustrated"
+        mood = "Needs Help"
     elif s > 0.12 and pos_ratio >= neg_ratio:
-        mood = "Satisfied"
+        mood = "Happy"
     else:
-        mood = "Neutral"
+        mood = "Steady"
 
-    tenure = "Long-term" if age >= age_q2 else "New"
-    engagement = "Highly Active" if msgs >= msg_q2 else "Low Activity"
-    return f"{mood} {tenure} {engagement} Users"
+    tenure = "Long-Time" if age >= age_q2 else "New"
+    # Guard against degenerate runs where msg_count is all zeros.
+    # Only mark "Very Active" when usage is non-zero and above the high-activity band.
+    if msgs > 0 and msgs >= max(msg_q3, msg_q2):
+        engagement = "Very Active"
+    else:
+        engagement = "Less Active"
+    return f"{mood} {tenure} {engagement}"
 
 
 def behavior_reason(feat: str, row: pd.Series, medians: dict[str, float]) -> str:
@@ -306,7 +311,8 @@ def main() -> None:
     )
     age_q2 = float(base["account_age_days"].median()) if len(base) else 0.0
     msg_q2 = float(base["msg_count"].median()) if len(base) else 0.0
-    profiles["persona_label"] = profiles.apply(lambda r: persona_name(r, age_q2, msg_q2), axis=1)
+    msg_q3 = float(base["msg_count"].quantile(0.75)) if len(base) else 0.0
+    profiles["persona_label"] = profiles.apply(lambda r: persona_name(r, age_q2, msg_q2, msg_q3), axis=1)
     # Keep labels human-readable but unique per cluster so dashboard filters don't collapse personas.
     dupes = profiles["persona_label"].duplicated(keep=False)
     profiles.loc[dupes, "persona_label"] = (

@@ -582,6 +582,14 @@ def remove_geographic_noise(df: pd.DataFrame, feature_col: str = "feature") -> p
     return df[keep_mask].copy()
 
 
+def remove_non_actionable_feature_noise(df: pd.DataFrame, feature_col: str = "feature") -> pd.DataFrame:
+    if df.empty or feature_col not in df.columns:
+        return df
+    blocked_features = {"type_customer"}
+    keep_mask = ~df[feature_col].astype(str).str.lower().str.strip().isin(blocked_features)
+    return df[keep_mask].copy()
+
+
 def humanize_feature_name(name: str) -> str:
     raw = str(name).strip()
     if not raw:
@@ -636,6 +644,30 @@ def humanize_feature_name(name: str) -> str:
 def shorten_user_label(label: str, max_chars: int = 24) -> str:
     s = str(label)
     return s if len(s) <= max_chars else s[: max_chars - 1] + "…"
+
+
+def simplify_persona_label(label: str) -> str:
+    s = str(label or "").strip()
+    if not s:
+        return s
+
+    # Convert technical persona wording to plain language while preserving [P#] suffixes.
+    replacements = [
+        ("Frustrated", "Needs Help"),
+        ("Satisfied", "Happy"),
+        ("Neutral", "Steady"),
+        ("Long-term", "Long-Time"),
+        ("Highly Active", "Very Active"),
+        ("Low Activity", "Less Active"),
+    ]
+
+    out = s
+    for old, new in replacements:
+        out = re.sub(rf"\\b{re.escape(old)}\\b", new, out, flags=re.IGNORECASE)
+
+    out = re.sub(r"\\bUsers\\b", "", out, flags=re.IGNORECASE)
+    out = re.sub(r"\\s{2,}", " ", out).strip()
+    return out
 
 
 @st.cache_resource(show_spinner=False)
@@ -2559,8 +2591,12 @@ def load_persona_outputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
     if "user_id" in table.columns:
         table["user_id"] = pd.to_numeric(table["user_id"], errors="coerce").fillna(-1).astype(int)
+    if "persona_label" in table.columns:
+        table["persona_label"] = table["persona_label"].astype(str).apply(simplify_persona_label)
     if "users" in profiles.columns:
         profiles["users"] = pd.to_numeric(profiles["users"], errors="coerce").fillna(0).astype(int)
+    if "persona_label" in profiles.columns:
+        profiles["persona_label"] = profiles["persona_label"].astype(str).apply(simplify_persona_label)
     if "importance" in importance.columns:
         importance["importance"] = pd.to_numeric(importance["importance"], errors="coerce").fillna(0.0)
 
@@ -2580,6 +2616,8 @@ def load_persona_user_shap() -> pd.DataFrame:
         for c in ["shap_value", "abs_shap"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+        if "persona_label" in df.columns:
+            df["persona_label"] = df["persona_label"].astype(str).apply(simplify_persona_label)
         return df
 
     if not PERSONA_USER_SHAP_PATH.exists():
@@ -2592,6 +2630,8 @@ def load_persona_user_shap() -> pd.DataFrame:
     for c in ["shap_value", "abs_shap"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    if "persona_label" in df.columns:
+        df["persona_label"] = df["persona_label"].astype(str).apply(simplify_persona_label)
     return df
 
 
@@ -2659,13 +2699,17 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 
     agg["dissatisfaction_score"] = 0.55 * neg_ratio_scaled + 0.45 * neg_strength
 
-    q80 = float(agg["dissatisfaction_score"].quantile(0.80)) if not agg.empty else 0.0
-    q60 = float(agg["dissatisfaction_score"].quantile(0.60)) if not agg.empty else 0.0
+    # Tighten thresholds so "Medium" is a narrower band and the dashboard
+    # does not over-label mildly negative users as dissatisfied.
+    q90 = float(agg["dissatisfaction_score"].quantile(0.90)) if not agg.empty else 0.0
+    q75 = float(agg["dissatisfaction_score"].quantile(0.75)) if not agg.empty else 0.0
+    high_cutoff = max(q90, 0.40)
+    medium_cutoff = max(q75, 0.22)
 
     def bucket(v: float) -> str:
-        if v >= q80:
+        if v >= high_cutoff:
             return "High"
-        if v >= q60:
+        if v >= medium_cutoff:
             return "Medium"
         return "Low"
 
@@ -2984,17 +3028,7 @@ def main() -> None:
         ],
     )
     st.sidebar.divider()
-    
-    st.sidebar.subheader("Sentiment Granularity")
-    neutral_target = st.sidebar.slider(
-        "Target Neutral Share",
-        min_value=0.20,
-        max_value=0.85,
-        value=0.60,
-        step=0.05,
-        help="Lower values force the system to pick a side (Pos/Neg) even for weaker sentiments."
-    )
-    
+
     if st.sidebar.button("🔄 Refresh Data", width="stretch"):
         st.cache_data.clear()
         st.rerun()
@@ -3187,58 +3221,6 @@ def main() -> None:
                     )
                     st.plotly_chart(fig_drift, width="stretch")
 
-            uncertain_cols = [c for c in ["created_at", "user_id", "sentiment_score", "sentiment_label", "message"] if c in wa_quality.columns]
-            uncertain_rows = wa_quality.sort_values("confidence_proxy", ascending=True).head(25).copy()
-            if not uncertain_rows.empty and uncertain_cols:
-                st.caption("Lowest-confidence samples to inspect model quality and edge cases.")
-                st.dataframe(uncertain_rows[uncertain_cols], width="stretch", height=260)
-
-            with st.expander("Sentiment Debug Table", expanded=False):
-                st.caption("Per-message trace: model score, heuristic score, rule/context adjustments, and final confidence.")
-                debug_df = wa_quality.copy()
-                debug_df["sentiment_confidence"] = pd.to_numeric(debug_df.get("sentiment_confidence"), errors="coerce").fillna(0.0)
-                debug_df["score_model_raw"] = pd.to_numeric(debug_df.get("score_model_raw"), errors="coerce").fillna(0.0)
-                debug_df["heuristic_score"] = pd.to_numeric(debug_df.get("heuristic_score"), errors="coerce").fillna(0.0)
-                debug_df["score_rule_hint"] = pd.to_numeric(debug_df.get("score_rule_hint"), errors="coerce").fillna(0.0)
-                debug_df["score_context_adjustment"] = pd.to_numeric(debug_df.get("score_context_adjustment"), errors="coerce").fillna(0.0)
-                debug_df["sentiment_debug_flags"] = debug_df.get("sentiment_debug_flags", "none").fillna("none").astype(str)
-
-                c1, c2, c3 = st.columns([1.2, 1.2, 1])
-                with c1:
-                    label_filter = st.selectbox("Label Filter", ["all", "negative", "neutral", "positive"], index=0)
-                with c2:
-                    flag_options = ["all", "rules", "context", "heuristic", "model", "disagreement"]
-                    flag_filter = st.selectbox("Debug Flag Filter", flag_options, index=0)
-                with c3:
-                    top_n = st.slider("Rows", min_value=20, max_value=250, value=80, step=10)
-
-                view = debug_df.copy()
-                if label_filter != "all":
-                    view = view[view["sentiment_label"].astype(str).str.lower().eq(label_filter)].copy()
-                if flag_filter != "all":
-                    view = view[view["sentiment_debug_flags"].str.contains(flag_filter, case=False, regex=False)].copy()
-
-                view = view.sort_values(["sentiment_confidence", "created_at"], ascending=[True, False])
-                view_cols = [
-                    c
-                    for c in [
-                        "created_at",
-                        "user_id",
-                        "sentiment_label",
-                        "sentiment_score",
-                        "sentiment_confidence",
-                        "score_model_raw",
-                        "heuristic_score",
-                        "score_rule_hint",
-                        "score_context_adjustment",
-                        "score_gru_context",
-                        "score_gru_adjustment",
-                        "sentiment_debug_flags",
-                        "message",
-                    ]
-                    if c in view.columns
-                ]
-                st.dataframe(view[view_cols].head(top_n), width="stretch", height=360)
             return
 
         st.subheader("Mood Swing Model (GRU)")
@@ -3272,16 +3254,37 @@ def main() -> None:
             mood_view = mood_summary.copy()
             mood_view["user"] = mood_view["user_id"].map(name_map).fillna("User (" + mood_view["user_id"].astype(str) + ")")
             mood_view["user_short"] = mood_view["user"].apply(lambda s: shorten_user_label(s, 26))
+            risk_targets = {"High": 7, "Medium": 7, "Low": 6}
+            sampled_parts: list[pd.DataFrame] = []
+            for risk_label, target_count in risk_targets.items():
+                risk_slice = mood_view[mood_view["risk_flag"].astype(str).str.strip().eq(risk_label)].copy()
+                if risk_slice.empty:
+                    continue
+                ascending = risk_label == "Low"
+                sampled_parts.append(
+                    risk_slice.sort_values("mood_swing_index", ascending=ascending).head(min(target_count, len(risk_slice)))
+                )
+
+            if sampled_parts:
+                mood_chart_df = pd.concat(sampled_parts, ignore_index=True)
+            else:
+                mood_chart_df = mood_view.sort_values("mood_swing_index", ascending=False).head(min(20, len(mood_view)))
+
+            mood_chart_df = (
+                mood_chart_df
+                .drop_duplicates(subset=["user_id"])
+                .sort_values("mood_swing_index", ascending=True)
+            )
 
             fig_mood = px.bar(
-                mood_view.sort_values("mood_swing_index", ascending=True).tail(min(20, len(mood_view))),
+                mood_chart_df,
                 x="mood_swing_index",
                 y="user_short",
                 orientation="h",
                 color="risk_flag",
                 color_discrete_map=RISK_COLORS,
                 hover_data=["messages", "actual_volatility", "predicted_volatility", "prediction_mae", "trend"],
-                title="Top Users by GRU Mood Swing Index",
+                title="GRU Mood Swing Index: High, Medium, And Low Examples",
             )
             style_chart(fig_mood, height=460, x_title="Mood Swing Index", y_title="User")
             st.plotly_chart(fig_mood, width="stretch")
@@ -3761,30 +3764,6 @@ def main() -> None:
             style_chart(fig_fi, height=500, x_title="Importance", y_title="Feature")
             st.plotly_chart(fig_fi, width="stretch")
 
-        st.subheader("t-SNE of GraphSAGE Embeddings By Persona")
-        tsne_df = build_tsne_persona(persona_table)
-        if tsne_df.empty:
-            st.info("Not enough embedding/persona data to build t-SNE plot.")
-        else:
-            fig_tsne = px.scatter(
-                tsne_df,
-                x="tsne_x",
-                y="tsne_y",
-                color="persona_label",
-                color_discrete_sequence=PERSONA_COLORS,
-                hover_data=["user_id"],
-                title="User Embedding Clusters (t-SNE)",
-            )
-            fig_tsne.update_traces(marker=dict(size=9, opacity=0.9, line=dict(width=0.6, color="#ffffff")))
-            style_chart(fig_tsne, height=520, x_title="t-SNE 1", y_title="t-SNE 2")
-            st.plotly_chart(fig_tsne, width="stretch")
-
-        st.subheader("Persona SHAP Summary Plot")
-        if PERSONA_SHAP_PLOT_PATH.exists():
-            st.image(str(PERSONA_SHAP_PLOT_PATH), width="stretch")
-        else:
-            st.info("No persona SHAP plot found. Re-run build_user_personas.py to generate persona_shap_summary.png.")
-
         st.subheader("Top 3 Reasons By Persona")
         reason_summary = summarize_persona_reasons(persona_table)
         if reason_summary.empty:
@@ -3839,8 +3818,8 @@ def main() -> None:
 
         persona_labels = sorted(persona_table["persona_label"].dropna().astype(str).unique().tolist())
         selected_persona = st.selectbox("Filter By Persona", ["All"] + persona_labels)
-        sentiment_filter = st.sidebar.selectbox("Persona Sentiment Filter", ["All", "Frustrated", "Neutral", "Satisfied"], key="persona_sent_filter")
-        activity_filter = st.sidebar.selectbox("Persona Activity Filter", ["All", "Highly Active", "Low Activity"], key="persona_act_filter")
+        sentiment_filter = st.sidebar.selectbox("Persona Sentiment Filter", ["All", "Needs Help", "Steady", "Happy"], key="persona_sent_filter")
+        activity_filter = st.sidebar.selectbox("Persona Activity Filter", ["All", "Very Active", "Less Active"], key="persona_act_filter")
         view = persona_table.copy()
         if selected_persona != "All":
             view = view[view["persona_label"].astype(str) == selected_persona]
@@ -3970,21 +3949,6 @@ def main() -> None:
                 style_chart(fig_time, height=420, x_title="Date", y_title="Average Polarity")
                 st.plotly_chart(fig_time, width="stretch")
 
-        st.subheader("Global Most Requested Intents")
-        if global_tasks.empty:
-            st.info("No global task ranking available.")
-        else:
-            fig_global_chat = px.bar(
-                global_tasks.head(15).sort_values("importance", ascending=True),
-                x="importance",
-                y="task",
-                orientation="h",
-                title="Global Intent Importance",
-            )
-            style_chart(fig_global_chat, height=460, x_title="Importance", y_title="Task")
-            st.plotly_chart(fig_global_chat, width="stretch")
-            st.dataframe(global_tasks[["task", "mentions", "avg_polarity", "sample_request"]].head(12), width="stretch", height=280)
-
         st.subheader("RAG Focus Opportunities (Global User Requests)")
         if global_feature_focus.empty:
             st.info("No clustered feature-demand signals found yet.")
@@ -4006,24 +3970,6 @@ def main() -> None:
             focus_table["avg_polarity"] = focus_table["avg_polarity"].map(lambda v: f"{v:.3f}")
             st.dataframe(focus_table, width="stretch", height=300)
             st.caption("Use high-mention clusters as top RAG coverage priorities, then inspect sample request phrases for intent granularity.")
-
-        st.subheader("Representative Global Statements")
-        if global_statements.empty:
-            st.info("No global contextual statements found.")
-        else:
-            st.dataframe(global_statements, width="stretch", height=320)
-
-        st.subheader("Global GNN Feature Importance")
-        top_global = global_imp.head(12).sort_values("importance", ascending=True)
-        fig_global = px.bar(
-            top_global,
-            x="importance",
-            y="feature",
-            orientation="h",
-            title="Global GNN Model Features",
-        )
-        style_chart(fig_global, height=460, x_title="Importance", y_title="Feature")
-        st.plotly_chart(fig_global, width="stretch")
 
     else:
         st.subheader("Per-User Controls")
@@ -4077,6 +4023,7 @@ def main() -> None:
         user_score_row = scores[scores["user_id"] == selected_user].head(1)
         user_imp = per_user_imp[per_user_imp["user_id"] == selected_user].sort_values("rank")
         user_imp = remove_geographic_noise(user_imp, feature_col="feature")
+        user_imp = remove_non_actionable_feature_noise(user_imp, feature_col="feature")
         user_imp = user_imp[pd.to_numeric(user_imp["importance"], errors="coerce").fillna(0.0) > 0].copy()
         selected_name = display_map.get(selected_user, f"User ({selected_user})")
 
