@@ -2251,7 +2251,7 @@ def load_xgb_target_report() -> pd.DataFrame:
 
 
 def load_xgb_user_predictions() -> pd.DataFrame:
-    expected = ["user_id", "target", "pred_label", "pred_prob_positive", "predicted_class", "confidence"]
+    expected = ["user_id", "target", "pred_label", "pred_prob_positive", "predicted_class", "confidence", "confidence_gate"]
     if XGB_PREDICTIONS_PATH.exists():
         df = pd.read_csv(XGB_PREDICTIONS_PATH)
     else:
@@ -2272,6 +2272,10 @@ def load_xgb_user_predictions() -> pd.DataFrame:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
     if "predicted_class" not in df.columns and "pred_label" in df.columns:
         df["predicted_class"] = np.where(df["pred_label"] == 1, "positive", "negative")
+    # Derive confidence_gate if not present (backward compat with older prediction CSVs)
+    if "confidence_gate" not in df.columns:
+        conf = pd.to_numeric(df.get("confidence"), errors="coerce").fillna(0.0)
+        df["confidence_gate"] = np.where(conf >= 0.70, "auto", np.where(conf >= 0.30, "review", "manual_review"))
     return df.sort_values("pred_prob_positive", ascending=False)
 
 
@@ -3243,13 +3247,12 @@ def main() -> None:
                     top_vulnerable.sort_values("dissatisfaction_score", ascending=True),
                     x="dissatisfaction_score",
                     y="user_label",
-                    color="dissatisfaction_flag",
-                    color_discrete_map=RISK_COLORS,
                     orientation="h",
                     title="Top 15 Most Vulnerable Users",
                     hover_data=["dissatisfaction_reason", "avg_sentiment", "neg_ratio"]
                 )
                 style_chart(fig_vulnerable, height=550, x_title="Dissatisfaction Score", y_title="User")
+                fig_vulnerable.update_traces(marker_color="#B2413E")
                 st.plotly_chart(fig_vulnerable, width="stretch")
                 st.caption("Hover over bars to see specific risk drivers and sentiment metrics for each user.")
 
@@ -3577,6 +3580,16 @@ def main() -> None:
             with s3: executive_metric("Negative Forecasts", f"{negative_count:,}")
             with s4: executive_metric("Class Concentration", f"{float(health['dominance']):.1%}")
 
+            # Confidence Gate tier metrics
+            gate_col = pred_summary.get("confidence_gate", pd.Series(dtype=str)).fillna("manual_review").astype(str).str.strip().str.lower()
+            gate_auto = int((gate_col == "auto").sum())
+            gate_review = int((gate_col == "review").sum())
+            gate_manual = int((gate_col == "manual_review").sum())
+            g1, g2, g3 = st.columns(3)
+            with g1: executive_metric("✅ Auto (≥70%)", f"{gate_auto:,}")
+            with g2: executive_metric("🔍 Review (30–70%)", f"{gate_review:,}")
+            with g3: executive_metric("⚠️ Manual Review (<30%)", f"{gate_manual:,}")
+
             if bool(health["collapse_flag"]):
                 st.error(
                     "Model collapse risk detected: predictions are dominated by one class with very low variation. "
@@ -3594,6 +3607,10 @@ def main() -> None:
                 improve_view["confidence"] = improve_view["confidence"].fillna(
                     (2.0 * (improve_view["pred_prob_positive"] - 0.5).abs()).clip(0.0, 1.0)
                 )
+            # Ensure confidence_gate column exists
+            if "confidence_gate" not in improve_view.columns:
+                conf = improve_view["confidence"]
+                improve_view["confidence_gate"] = np.where(conf >= 0.70, "auto", np.where(conf >= 0.30, "review", "manual_review"))
 
             names = load_user_directory()
             if not names.empty and "user_id" in improve_view.columns:
@@ -3608,25 +3625,44 @@ def main() -> None:
                 prob_pos = float(row.get("pred_prob_positive", 0.0))
                 confidence = float(row.get("confidence", 0.0))
                 pred_class = str(row.get("predicted_class", "")).strip().lower()
+                gate = str(row.get("confidence_gate", "manual_review")).strip().lower()
 
+                if gate == "manual_review":
+                    return "⚠️ Manual Review Required — model confidence too low for automated advice."
+                if gate == "review":
+                    return "🔍 Needs Review — borderline confidence; verify with recent user data before acting."
+                # Auto tier: generate specific improvement tips
                 if 0.45 <= prob_pos <= 0.55:
                     return "Borderline score; add more labeled feedback samples for this user."
-                if confidence < 0.60:
-                    return "Low confidence; gather recent examples and retrain with fresher labels."
                 if pred_class == "negative" and prob_pos < 0.25:
                     return "Strong negative signal; review message context and add nuanced sentiment labels."
                 if pred_class == "positive" and prob_pos > 0.80:
-                    return "Stable prediction; keep monitoring for drift with periodic label audits."
+                    return "✅ Stable prediction; keep monitoring for drift with periodic label audits."
                 return "Improve feature coverage using richer behavioral and interaction-level signals."
 
             improve_view["improvement_action"] = improve_view.apply(recommendation_for_row, axis=1)
+
+            # Tier filter
+            gate_filter = st.selectbox(
+                "Filter By Confidence Tier",
+                ["All", "✅ Auto (High Confidence)", "🔍 Review (Borderline)", "⚠️ Manual Review (Low Confidence)"],
+                key="gate_filter",
+            )
+            filtered_view = improve_view.copy()
+            if "Auto" in gate_filter:
+                filtered_view = filtered_view[filtered_view["confidence_gate"] == "auto"]
+            elif "Review" in gate_filter and "Manual" not in gate_filter:
+                filtered_view = filtered_view[filtered_view["confidence_gate"] == "review"]
+            elif "Manual" in gate_filter:
+                filtered_view = filtered_view[filtered_view["confidence_gate"] == "manual_review"]
+
             show_cols = [
                 c
-                for c in ["user", "user_id", "predicted_class", "pred_prob_positive", "confidence", "improvement_action"]
-                if c in improve_view.columns
+                for c in ["user", "user_id", "predicted_class", "pred_prob_positive", "confidence", "confidence_gate", "improvement_action"]
+                if c in filtered_view.columns
             ]
             st.dataframe(
-                improve_view[show_cols].sort_values(["confidence", "pred_prob_positive"], ascending=[True, True]),
+                filtered_view[show_cols].sort_values(["confidence", "pred_prob_positive"], ascending=[True, True]),
                 width="stretch",
                 height=330,
             )

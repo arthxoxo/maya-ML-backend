@@ -954,6 +954,23 @@ def main() -> None:
             f"→ marked as 'insufficient_data' (not enough signal for reliable prediction)"
         )
 
+    # Confidence Threshold Gate: route predictions into action tiers.
+    # High (≥0.70): safe for auto-generated improvement tips.
+    # Mid (0.30–0.70): borderline, flag for operator review.
+    # Low (<0.30): force manual human review before acting.
+    confidence_gate = np.where(
+        ~has_any_signal, "manual_review",
+        np.where(confidence >= 0.70, "auto",
+                 np.where(confidence >= 0.30, "review", "manual_review")),
+    )
+    gate_auto = int((confidence_gate == "auto").sum())
+    gate_review = int((confidence_gate == "review").sum())
+    gate_manual = int((confidence_gate == "manual_review").sum())
+    print(
+        f"[confidence_gate] auto={gate_auto} review={gate_review} manual_review={gate_manual} "
+        f"(thresholds: auto≥0.70, review≥0.30)"
+    )
+
     pred_df = pd.DataFrame(
         {
             "user_id": emb["user_id"].astype(int),
@@ -962,6 +979,7 @@ def main() -> None:
             "pred_prob_positive": proba_all.astype(float),
             "predicted_class": predicted_class,
             "confidence": confidence,
+            "confidence_gate": confidence_gate,
         }
     ).sort_values("pred_prob_positive", ascending=False)
     save_artifact_df(pred_df, "xgb_user_predictions", Path(args.out_predictions), index=False)
