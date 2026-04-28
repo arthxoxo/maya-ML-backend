@@ -585,9 +585,14 @@ def remove_geographic_noise(df: pd.DataFrame, feature_col: str = "feature") -> p
 def remove_non_actionable_feature_noise(df: pd.DataFrame, feature_col: str = "feature") -> pd.DataFrame:
     if df.empty or feature_col not in df.columns:
         return df
+    # Filter out blocked keys and any categorical types that don't add value to interpretation
     blocked_features = {"type_customer"}
-    keep_mask = ~df[feature_col].astype(str).str.lower().str.strip().isin(blocked_features)
-    return df[keep_mask].copy()
+    mask = ~df[feature_col].astype(str).str.lower().str.strip().isin(blocked_features)
+    df = df[mask].copy()
+    
+    # Also remove any feature starting with 'type_' as requested by user (User Type bars)
+    mask_type = ~df[feature_col].astype(str).str.lower().str.startswith("type_")
+    return df[mask_type].copy()
 
 
 def humanize_feature_name(name: str) -> str:
@@ -1856,40 +1861,7 @@ def build_response_sentiment_timeline(selected_user: int, user_sent: pd.DataFram
     return paired[["created_at", "response_time_sec", "polarity"]].sort_values("created_at")
 
 
-def build_hri_metrics(selected_user: int, user_sent: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
-    events = load_user_message_events()
-    user_events = events[(events["user_id"] == int(selected_user)) & (events["role"] == "user")].copy()
 
-    if user_events.empty:
-        modality = pd.DataFrame({"metric": ["Speech", "Touch"], "value": [0.0, 0.0]})
-    else:
-        speech_count = int(user_events["has_transcription"].fillna(False).sum())
-        touch_count = int(len(user_events) - speech_count)
-        if speech_count == 0 and touch_count > 0:
-            voice_keywords = r"\b(call|voice|audio|speak|speaking|mic|microphone)\b"
-            inferred_speech = int(user_events["message"].astype(str).str.contains(voice_keywords, case=False, regex=True).sum())
-            speech_count = inferred_speech
-            touch_count = max(len(user_events) - inferred_speech, 0)
-        modality = pd.DataFrame({"metric": ["Speech", "Touch"], "value": [float(speech_count), float(touch_count)]})
-
-    timeline = build_response_sentiment_timeline(selected_user, user_sent)
-    proxy_used = True
-    if timeline.empty:
-        distance_score = 50.0
-    else:
-        avg_rt = float(timeline["response_time_sec"].median())
-        distance_score = float(max(min(100.0 * _sigmoid((45.0 - avg_rt) / 18.0), 100.0), 0.0))
-
-    if user_sent.empty:
-        posture_score = 50.0
-    else:
-        volatility = float(user_sent.sort_values("created_at")["polarity"].diff().abs().mean() or 0.0)
-        posture_score = float(max(min((1.0 - min(volatility, 1.0)) * 100.0, 100.0), 0.0))
-
-    physical = pd.DataFrame(
-        {"metric": ["Distance", "Posture"], "value": [distance_score, posture_score]}
-    )
-    return modality, physical, proxy_used
 
 
 def tokenize_message(text: str) -> list[str]:
@@ -4094,79 +4066,48 @@ def main() -> None:
                 st.plotly_chart(fig_radar, width="stretch")
                 st.caption("Scores summarize the latest 5 user interactions.")
 
-        timeline_col, hri_col = st.columns(2)
-        with timeline_col:
-            st.markdown("#### Interaction Timeline")
-            timeline = build_response_sentiment_timeline(selected_user, user_sent)
-            if timeline.empty:
-                st.info("Not enough user→assistant turns to compute response-time timeline.")
-            else:
-                fig_timeline = go.Figure()
-                fig_timeline.add_trace(
-                    go.Scatter(
-                        x=timeline["created_at"],
-                        y=timeline["response_time_sec"],
-                        name="Response Time (sec)",
-                        mode="lines+markers",
-                        line=dict(color=ACCENT_PRIMARY, width=2.5),
-                        marker=dict(size=6),
-                    )
+        st.markdown("#### Interaction Timeline")
+        timeline = build_response_sentiment_timeline(selected_user, user_sent)
+        if timeline.empty:
+            st.info("Not enough user→assistant turns to compute response-time timeline.")
+        else:
+            fig_timeline = go.Figure()
+            fig_timeline.add_trace(
+                go.Scatter(
+                    x=timeline["created_at"],
+                    y=timeline["response_time_sec"],
+                    name="Response Time (sec)",
+                    mode="lines+markers",
+                    line=dict(color=ACCENT_PRIMARY, width=2.5),
+                    marker=dict(size=6),
                 )
-                fig_timeline.add_trace(
-                    go.Scatter(
-                        x=timeline["created_at"],
-                        y=timeline["polarity"],
-                        name="Sentiment Score",
-                        mode="lines+markers",
-                        yaxis="y2",
-                        line=dict(color="#B2413E", width=2),
-                        marker=dict(size=5),
-                    )
+            )
+            fig_timeline.add_trace(
+                go.Scatter(
+                    x=timeline["created_at"],
+                    y=timeline["polarity"],
+                    name="Sentiment Score",
+                    mode="lines+markers",
+                    yaxis="y2",
+                    line=dict(color="#B2413E", width=2),
+                    marker=dict(size=5),
                 )
-                style_chart(fig_timeline, height=420, x_title="Timestamp", y_title="Response Time (sec)")
-                fig_timeline.update_layout(
-                    yaxis2=dict(
-                        title="Sentiment Score",
-                        overlaying="y",
-                        side="right",
-                        range=[-1.0, 1.0],
-                        showgrid=False,
-                        zeroline=True,
-                    ),
-                    legend=dict(orientation="h", y=1.08, x=0.01),
-                )
-                st.plotly_chart(fig_timeline, width="stretch")
-                st.caption("Dual-axis view helps catch slow-response + negative-sentiment trends early.")
-
-        with hri_col:
-            st.markdown("#### HRI Metrics")
-            modality_df, physical_df, proxy_used = build_hri_metrics(selected_user, user_sent)
-            h1, h2 = st.columns(2)
-            with h1:
-                fig_modality = px.bar(
-                    modality_df,
-                    x="metric",
-                    y="value",
-                    color="metric",
-                    color_discrete_sequence=[ACCENT_PRIMARY, "#EA8C55"],
-                    title="Modality Usage",
-                )
-                style_chart(fig_modality, height=390, x_title="Modality", y_title="Interactions", rotate_x=False)
-                st.plotly_chart(fig_modality, width="stretch")
-            with h2:
-                fig_physical = px.bar(
-                    physical_df,
-                    x="metric",
-                    y="value",
-                    color="metric",
-                    color_discrete_sequence=["#2A9D8F", "#8A5A44"],
-                    title="Physical Engagement",
-                )
-                fig_physical.update_yaxes(range=[0, 100])
-                style_chart(fig_physical, height=390, x_title="Signal", y_title="Score")
-                st.plotly_chart(fig_physical, width="stretch")
-            if proxy_used:
-                st.caption("Physical engagement scores are proxy-derived because explicit distance/posture sensor columns are not available in current datasets.")
+            )
+            style_chart(fig_timeline, height=420, x_title="Timestamp", y_title="Response Time (sec)")
+            fig_timeline.update_layout(
+                title="",
+                yaxis2=dict(
+                    title="Sentiment Score",
+                    overlaying="y",
+                    side="right",
+                    range=[-1.0, 1.0],
+                    showgrid=False,
+                    zeroline=True,
+                ),
+                legend=dict(orientation="h", y=1.08, x=0.01),
+            )
+            st.plotly_chart(fig_timeline, width="stretch")
+            st.caption("Dual-axis view helps catch slow-response + negative-sentiment trends early.")
 
         st.divider()
         st.markdown("### Drivers And Requests")
