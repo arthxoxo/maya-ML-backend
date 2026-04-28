@@ -114,6 +114,8 @@ SENTIMENT_DIVERGING_SCALE = [
 ]
 
 ACCENT_PRIMARY = "#D4AF37"  # Metallic Gold
+CHART_PAPER_BG = "rgba(0,0,0,0)"
+CHART_PLOT_BG = "rgba(0,0,0,0)"
 ACCENT_SECONDARY = "#BD9354" # Champagne
 CHART_PAPER_BG = "rgba(0,0,0,0)"
 CHART_PLOT_BG = "rgba(0,0,0,0)"
@@ -332,78 +334,106 @@ def style_app() -> None:
         """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600&display=swap');
-        
-        /* Main Container */
+
+        /* ═══════════════════════════════════════════════
+           ROOT VARIABLES
+           ═══════════════════════════════════════════════ */
+        :root {
+            --bg-primary: #0b1120;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --border-subtle: rgba(212, 175, 55, 0.12);
+            --border-hover: rgba(212, 175, 55, 0.4);
+            --accent-gold: #d4af37;
+            --accent-gold-dim: rgba(212, 175, 55, 0.15);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+        }
+
+        /* ═══════════════════════════════════════════════
+           GLOBAL RESETS
+           ═══════════════════════════════════════════════ */
         [data-testid="stAppViewContainer"] {
-            background: radial-gradient(circle at 2% 2%, #1e293b 0%, #0f172a 100%);
-            color: #f8fafc;
+            background: linear-gradient(170deg, #0b1120 0%, #111827 40%, #0f172a 100%);
+            color: var(--text-primary);
+        }
+        [data-testid="stAppViewContainer"]::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 800px 600px at 10% 15%, rgba(212,175,55,0.04) 0%, transparent 60%),
+                radial-gradient(ellipse 600px 400px at 90% 80%, rgba(59,130,246,0.03) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .main .block-container {
+            position: relative;
+            z-index: 1;
         }
 
-        /* Restore Sidebar but Hide Navigation List */
-        [data-testid="stSidebarNav"] {
-            display: none;
+        /* ═══════════════════════════════════════════════
+           HEADER & NAVIGATION
+           ═══════════════════════════════════════════════ */
+        [data-testid="stSidebarNav"] { display: none; }
+        [data-testid="stHeader"] { background: transparent !important; }
+        footer { visibility: hidden; }
+
+        /* Sidebar — Frosted Glass */
+        [data-testid="stSidebar"] {
+            background: rgba(11, 17, 32, 0.92) !important;
+            backdrop-filter: blur(20px) saturate(1.8);
+            border-right: 1px solid var(--border-subtle);
+        }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+            color: var(--text-secondary);
         }
 
-        /* Hide Header Clutter but Keep Toggle */
-        [data-testid="stHeader"] {
-            background: transparent !important;
+        /* Sidebar Radio Buttons — Pill Navigation */
+        [data-testid="stSidebar"] .stRadio > div {
+            gap: 4px !important;
         }
-        
-        /* Style Sidebar Open/Close Toggle (Gold) */
+        [data-testid="stSidebar"] .stRadio label {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            padding: 10px 16px !important;
+            margin: 0 !important;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+        [data-testid="stSidebar"] .stRadio label:hover {
+            background: var(--accent-gold-dim);
+            border-color: var(--border-subtle);
+        }
+        [data-testid="stSidebar"] .stRadio label[data-checked="true"],
+        [data-testid="stSidebar"] .stRadio label:has(input:checked) {
+            background: linear-gradient(135deg, rgba(212,175,55,0.15) 0%, rgba(212,175,55,0.05) 100%);
+            border-color: var(--accent-gold) !important;
+            box-shadow: 0 0 20px rgba(212,175,55,0.08);
+        }
+
+        /* Sidebar Toggle Button */
         button[kind="header"] {
-            color: #d4af37 !important;
-            background: rgba(30, 41, 59, 0.4) !important;
-            border-radius: 8px !important;
-            border: 1px solid rgba(212, 175, 55, 0.2) !important;
-            transition: all 0.2s ease !important;
+            color: var(--accent-gold) !important;
+            background: rgba(17, 24, 39, 0.6) !important;
+            border-radius: var(--radius-sm) !important;
+            border: 1px solid var(--border-subtle) !important;
+            transition: all 0.25s ease !important;
         }
         button[kind="header"]:hover {
-            border-color: #d4af37 !important;
-            background: rgba(30, 41, 59, 0.7) !important;
+            border-color: var(--accent-gold) !important;
+            background: rgba(17, 24, 39, 0.9) !important;
+            box-shadow: 0 0 15px rgba(212,175,55,0.12) !important;
         }
 
-        /* Hide Footer */
-        footer {
-            visibility: hidden;
-        }
-
-        /* Sidebar Styling (Redundant if hidden, but kept for fallback) */
-        [data-testid="stSidebar"] {
-            background-color: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(12px);
-            border-right: 1px solid rgba(212, 175, 55, 0.15);
-        }
-
-        /* Metric Cards Overwrite */
-        [data-testid="metric-container"] {
-            background: rgba(30, 41, 59, 0.6);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(212, 175, 55, 0.2);
-            border-radius: 12px;
-            padding: 1.2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            transition: all 0.3s ease;
-        }
-        [data-testid="metric-container"]:hover {
-            border-color: rgba(212, 175, 55, 0.5);
-            box-shadow: 0 8px 30px rgba(212, 175, 55, 0.15);
-            transform: translateY(-2px);
-        }
-        [data-testid="stMetricLabel"] {
-            color: #94a3b8 !important;
-            font-family: 'Inter', sans-serif;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            font-size: 0.75rem !important;
-        }
-        [data-testid="stMetricValue"] {
-            color: #f1f5f9 !important;
-            font-family: 'Outfit', sans-serif;
-            font-weight: 700;
-        }
-
-        /* Global Typography & Layout */
+        /* ═══════════════════════════════════════════════
+           TYPOGRAPHY
+           ═══════════════════════════════════════════════ */
         .block-container {
             padding-top: 1.5rem !important;
             padding-bottom: 2rem;
@@ -411,43 +441,248 @@ def style_app() -> None:
             max-width: 96% !important;
         }
         h1, h2, h3 {
-            font-family: 'Outfit', sans-serif;
-            color: #f8fafc !important;
+            font-family: 'Outfit', sans-serif !important;
+            color: var(--text-primary) !important;
             font-weight: 700 !important;
         }
-        h1 { font-size: 3rem !important; letter-spacing: -0.5px; }
+        h1 {
+            font-size: 2.4rem !important;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #f1f5f9 0%, #d4af37 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        h2 { font-size: 1.6rem !important; }
+        h3 { font-size: 1.25rem !important; color: #e2e8f0 !important; }
 
-        /* Plotly Containers */
+        /* Captions */
+        [data-testid="stCaptionContainer"] {
+            color: var(--text-muted) !important;
+            font-size: 0.82rem !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           METRIC CARDS — Glassmorphism
+           ═══════════════════════════════════════════════ */
+        [data-testid="metric-container"] {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 1.2rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.03);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        [data-testid="metric-container"]:hover {
+            border-color: var(--border-hover);
+            box-shadow: 0 8px 32px rgba(212, 175, 55, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+            transform: translateY(-2px);
+        }
+        [data-testid="stMetricLabel"] {
+            color: var(--text-secondary) !important;
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            font-size: 0.72rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            color: var(--text-primary) !important;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+        }
+        [data-testid="stMetricDelta"] {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+        }
+
+        /* ═══════════════════════════════════════════════
+           PLOTLY CHARTS — Dark Glass
+           ═══════════════════════════════════════════════ */
         .stPlotlyChart {
-            background: rgba(30, 41, 59, 0.4);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(17, 24, 39, 0.5);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(255, 255, 255, 0.04);
             padding: 1rem;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            transition: border-color 0.3s ease;
+        }
+        .stPlotlyChart:hover {
+            border-color: var(--border-subtle);
         }
 
-        /* Tables & Dataframes */
+        /* ═══════════════════════════════════════════════
+           TABLES & DATAFRAMES
+           ═══════════════════════════════════════════════ */
         .stDataFrame {
-            background: rgba(15, 23, 42, 0.5);
-            border: 1px solid rgba(212, 175, 55, 0.1);
-            border-radius: 12px;
+            background: rgba(11, 17, 32, 0.6);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .stDataFrame [data-testid="glideDataEditor"] {
+            border-radius: var(--radius-md);
+        }
+        /* Header row styling */
+        .stDataFrame th, .stDataFrame [role="columnheader"] {
+            background: rgba(212, 175, 55, 0.08) !important;
+            color: var(--text-secondary) !important;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.5px;
         }
 
-        /* Buttons (Gold Finish) */
+        /* ═══════════════════════════════════════════════
+           BUTTONS — Gold Finish
+           ═══════════════════════════════════════════════ */
         .stButton > button {
-            background: linear-gradient(135deg, #d4af37 0%, #b58d55 100%);
-            color: #0f172a !important;
+            background: linear-gradient(135deg, #d4af37 0%, #b8962e 100%);
+            color: #0b1120 !important;
             border: none;
-            padding: 0.6rem 2rem;
-            border-radius: 8px;
+            padding: 0.65rem 2rem;
+            border-radius: var(--radius-sm);
             font-weight: 600;
             font-family: 'Outfit', sans-serif;
-            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
-            transition: all 0.2s ease;
+            font-size: 0.88rem;
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.25);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            letter-spacing: 0.3px;
         }
         .stButton > button:hover {
-            box-shadow: 0 6px 20px rgba(212, 175, 55, 0.5);
-            transform: scale(1.02);
+            box-shadow: 0 8px 25px rgba(212, 175, 55, 0.4);
+            transform: translateY(-1px) scale(1.01);
+        }
+        .stButton > button:active {
+            transform: translateY(0) scale(0.99);
+        }
+
+        /* Download Button */
+        .stDownloadButton > button {
+            background: transparent;
+            color: var(--accent-gold) !important;
+            border: 1px solid var(--border-hover);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+        }
+        .stDownloadButton > button:hover {
+            background: var(--accent-gold-dim);
+        }
+
+        /* ═══════════════════════════════════════════════
+           SELECT BOXES & INPUTS
+           ═══════════════════════════════════════════════ */
+        .stSelectbox > div > div,
+        .stMultiSelect > div > div,
+        .stTextInput > div > div > input {
+            background: var(--bg-secondary) !important;
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: var(--radius-sm) !important;
+            color: var(--text-primary) !important;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.2s ease;
+        }
+        .stSelectbox > div > div:focus-within,
+        .stTextInput > div > div > input:focus {
+            border-color: var(--accent-gold) !important;
+            box-shadow: 0 0 0 2px rgba(212,175,55,0.1) !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           EXPANDERS
+           ═══════════════════════════════════════════════ */
+        .streamlit-expanderHeader {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: var(--radius-sm) !important;
+            color: var(--text-primary) !important;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+        }
+        .streamlit-expanderContent {
+            border: 1px solid var(--border-subtle) !important;
+            border-top: none !important;
+            border-radius: 0 0 var(--radius-sm) var(--radius-sm) !important;
+            background: rgba(11, 17, 32, 0.4) !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           DIVIDERS — Gold Gradient
+           ═══════════════════════════════════════════════ */
+        [data-testid="stHorizontalBlock"] + hr,
+        hr {
+            border: none !important;
+            height: 1px !important;
+            background: linear-gradient(90deg, transparent 0%, rgba(212,175,55,0.3) 50%, transparent 100%) !important;
+            margin: 1.5rem 0 !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           ALERTS & INFO BOXES
+           ═══════════════════════════════════════════════ */
+        .stAlert {
+            border-radius: var(--radius-md) !important;
+            border-left-width: 4px !important;
+            backdrop-filter: blur(8px);
+        }
+
+        /* ═══════════════════════════════════════════════
+           TABS
+           ═══════════════════════════════════════════════ */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 2px;
+            background: rgba(11, 17, 32, 0.5);
+            border-radius: var(--radius-sm);
+            padding: 4px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            padding: 8px 20px;
+            transition: all 0.2s ease;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            color: var(--text-primary);
+            background: rgba(212,175,55,0.06);
+        }
+        .stTabs [aria-selected="true"] {
+            color: var(--accent-gold) !important;
+            background: rgba(212,175,55,0.1) !important;
+        }
+        .stTabs [data-baseweb="tab-highlight"] {
+            background-color: var(--accent-gold) !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           SCROLLBAR
+           ═══════════════════════════════════════════════ */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(212, 175, 55, 0.25);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(212, 175, 55, 0.45); }
+
+        /* ═══════════════════════════════════════════════
+           SPINNER
+           ═══════════════════════════════════════════════ */
+        .stSpinner > div > div {
+            border-top-color: var(--accent-gold) !important;
+        }
+
+        /* ═══════════════════════════════════════════════
+           TOAST NOTIFICATIONS
+           ═══════════════════════════════════════════════ */
+        [data-testid="stToast"] {
+            background: var(--bg-secondary) !important;
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: var(--radius-md) !important;
+            color: var(--text-primary) !important;
         }
 
         </style>
@@ -461,18 +696,19 @@ def executive_card(label: str, content: str = ""):
     st.markdown(
         f"""
         <div style="
-            background: rgba(30, 41, 59, 0.5);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(212, 175, 55, 0.3);
-            border-radius: 12px;
+            background: rgba(17, 24, 39, 0.65);
+            backdrop-filter: blur(16px) saturate(1.4);
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            border-radius: 14px;
             padding: 1.5rem;
             margin-bottom: 1rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         ">
-            <div style="font-family: 'Inter', sans-serif; color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">
+            <div style="font-family: 'Inter', sans-serif; color: #94a3b8; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 0.5rem;">
                 {label}
             </div>
-            <div style="font-family: 'Outfit', sans-serif; color: #f8fafc; font-size: 1.8rem; font-weight: 700;">
+            <div style="font-family: 'Outfit', sans-serif; color: #f1f5f9; font-size: 1.8rem; font-weight: 700;">
                 {content}
             </div>
         </div>
@@ -484,18 +720,20 @@ def executive_card(label: str, content: str = ""):
 def executive_metric(label: str, value: str, delta: str = ""):
     """Custom metric component for high-end data cards."""
     color = "#2ECC71" if "+" in str(delta) else "#E74C3C"
-    delta_html = f'<span style="color: {color}; font-size: 0.9rem; margin-left: 8px;">{delta}</span>' if delta else ""
+    delta_html = f'<span style="color: {color}; font-size: 0.85rem; margin-left: 8px; font-weight: 600;">{delta}</span>' if delta else ""
     
     st.markdown(f"""
         <div style="
-            background: rgba(30, 41, 59, 0.4);
-            border-left: 3px solid rgba(212, 175, 55, 0.8);
+            background: rgba(17, 24, 39, 0.5);
+            border-left: 3px solid rgba(212, 175, 55, 0.7);
             border-radius: 4px 12px 12px 4px;
-            padding: 1rem;
+            padding: 1rem 1.2rem;
             margin-bottom: 0.5rem;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         ">
-            <div style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{label}</div>
-            <div style="color: #f1f5f9; font-size: 1.6rem; font-weight: 700; font-family: 'Outfit';">
+            <div style="color: #94a3b8; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 5px; font-family: 'Inter', sans-serif;">{label}</div>
+            <div style="color: #f1f5f9; font-size: 1.5rem; font-weight: 700; font-family: 'Outfit', sans-serif;">
                 {value}{delta_html}
             </div>
         </div>
@@ -510,66 +748,48 @@ def style_chart(
     rotate_x: bool = False,
     kind: str = "cartesian",
 ):
+    # Ensure layout exists and is clean
     fig.update_layout(
         height=height,
-        title_font=dict(size=20, color="#F8FAFC", family="Outfit"),
-        font=dict(size=13, color="#F1F5F9", family="Inter"),
-        legend=dict(
-            yanchor="top", y=1.02, xanchor="left", x=0.01, 
-            bgcolor="rgba(15, 23, 42, 0.9)", 
-            bordercolor="rgba(212, 175, 55, 0.4)",
-            borderwidth=1,
-            font=dict(size=12, color="#F8FAFC")
-        ),
-        hoverlabel=dict(
-            font_size=13, 
-            bgcolor="#1E293B", 
-            bordercolor="rgba(212, 175, 55, 0.5)", 
-            font_color="#F8FAFC"
-        ),
-        margin=dict(l=62, r=22, t=64, b=58),
-        paper_bgcolor=CHART_PAPER_BG,
-        plot_bgcolor=CHART_PLOT_BG,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(size=12, color="#F1F5F9", family="Inter"),
+        margin=dict(l=50, r=20, t=50, b=50),
+        showlegend=True,
     )
-    fig.update_xaxes(title_font_color="#F1F5F9", tickfont_color="#CBD5E1", gridcolor="rgba(255,255,255,0.05)")
-    fig.update_yaxes(title_font_color="#F1F5F9", tickfont_color="#CBD5E1", gridcolor="rgba(255,255,255,0.05)")
+    
+    # Explicitly clear title to prevent 'undefined' rendering
+    if not (hasattr(fig.layout, 'title') and fig.layout.title.text):
+        fig.update_layout(title_text="")
+    else:
+        fig.update_layout(title_font=dict(size=18, color="#F8FAFC", family="Outfit"))
 
     if kind == "pie":
         fig.update_traces(
             textposition="outside",
-            textfont_size=13,
             textinfo="percent+label",
-            marker=dict(line=dict(color="#1e293b", width=2)),
-            insidetextfont=dict(color="#f8fafc", size=12),
-            outsidetextfont=dict(color="#cbd5e1", size=12),
-            automargin=True,
+            marker=dict(line=dict(color="#0f172a", width=2)),
         )
         return fig
 
+    # Cartesian-only updates
+    fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)", zeroline=False)
+
     if kind == "cartesian":
         fig.update_xaxes(
-            title=x_title,
+            title=x_title if x_title else None,
             tickangle=-25 if rotate_x else 0,
-            automargin=True,
-            showline=True,
-            linecolor="rgba(212, 175, 55, 0.4)",
-            tickfont=dict(size=12, color="#CBD5E1"),
-            title_font=dict(size=13, color="#F1F5F9"),
-            gridcolor="rgba(255,255,255,0.05)",
+            tickfont=dict(size=11, color="#CBD5E1"),
         )
         fig.update_yaxes(
-            title=y_title,
-            automargin=True,
-            showline=True,
-            linecolor="rgba(212, 175, 55, 0.4)",
-            gridcolor="rgba(255,255,255,0.05)",
-            tickfont=dict(size=12, color="#CBD5E1"),
-            title_font=dict(size=13, color="#F1F5F9"),
+            title=y_title if y_title else None,
+            tickfont=dict(size=11, color="#CBD5E1"),
         )
 
         for tr in fig.data:
             if getattr(tr, "type", "") in {"bar", "histogram", "scatter", "scattergl"}:
-                tr.update(marker_line_color="rgba(212, 175, 55, 0.5)", marker_line_width=1)
+                tr.update(marker_line_width=1)
         if len(fig.data) == 1 and getattr(fig.data[0], "type", "") in {"bar", "histogram", "scatter"}:
             fig.update_traces(marker_color=ACCENT_PRIMARY)
     return fig
@@ -2989,9 +3209,27 @@ def main() -> None:
     maybe_run_pipeline_automatically()
     refresh_nonce = get_data_refresh_nonce()
 
-    st.title("User Behavior Intelligence Dashboard")
-    st.caption("User-level feature importance and sentiment insights from your trained GNN outputs.")
-    st.caption(f"Last Updated: {get_dashboard_last_updated_label()}")
+    st.markdown("""
+        <div style="margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 6px;">
+                <span style="font-size: 2rem;">🔱</span>
+                <h1 style="margin: 0; padding: 0; font-family: 'Outfit', sans-serif; font-size: 2.2rem; font-weight: 700;
+                    background: linear-gradient(135deg, #f1f5f9 0%, #d4af37 100%);
+                    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                    Maya Behavioral Intelligence
+                </h1>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px; margin-left: 3.2rem;">
+                <span style="color: #64748b; font-size: 0.82rem; font-family: 'Inter', sans-serif;">
+                    User-level feature importance and sentiment insights from your trained GNN outputs
+                </span>
+                <span style="color: rgba(212,175,55,0.4);">•</span>
+                <span style="color: #4a5568; font-size: 0.78rem; font-family: 'Inter', sans-serif;">
+                    """ + f"Last Updated: {get_dashboard_last_updated_label()}" + """
+                </span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
     page = st.sidebar.radio(
         "Page",
@@ -3527,6 +3765,55 @@ def main() -> None:
         st.subheader("RAG Roadmap Signals")
         st.caption("Prioritize capabilities with strong demand, rising trend, and higher dissatisfaction.")
 
+        # Embedding Model Predictions — shown at the top of the page
+        pred_df = load_xgb_user_predictions()
+
+        if not pred_df.empty:
+            names = load_user_directory()
+            pred_view = pred_df.copy()
+            if not names.empty:
+                pred_view = pred_view.merge(names, on="user_id", how="left")
+                pred_view["user"] = pred_view["display_name"].fillna("User (" + pred_view["user_id"].astype(str) + ")")
+            else:
+                pred_view["user"] = "User (" + pred_view["user_id"].astype(str) + ")"
+            pred_view["pred_prob_negative"] = 1.0 - pred_view["pred_prob_positive"].astype(float)
+            pred_view = pred_view.sort_values("pred_prob_positive", ascending=False)
+
+            # Exclude insufficient_data users — they have no real signal
+            valid_pred = pred_view[pred_view["predicted_class"].astype(str).str.lower().str.strip() != "insufficient_data"].copy()
+            pos_users = valid_pred[valid_pred["pred_prob_positive"] >= 0.5]
+            neg_users = valid_pred[valid_pred["pred_prob_positive"] < 0.5]
+            pos_pct = f"{len(pos_users) / len(valid_pred):.1%}" if len(valid_pred) > 0 else "0%"
+            neg_pct = f"{len(neg_users) / len(valid_pred):.1%}" if len(valid_pred) > 0 else "0%"
+            avg_pos_conf = f"{pos_users['confidence'].mean():.1%}" if not pos_users.empty else "N/A"
+            avg_neg_conf = f"{neg_users['confidence'].mean():.1%}" if not neg_users.empty else "N/A"
+
+            card_left, card_right = st.columns(2)
+            with card_left:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #1a3a2a 0%, #0d1117 100%); border: 1px solid #2E8B57; border-radius: 12px; padding: 28px 24px; text-align: center;">
+                    <div style="font-size: 14px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Positive Predictions</div>
+                    <div style="font-size: 42px; font-weight: 700; color: #2E8B57; margin-bottom: 4px;">{len(pos_users):,}</div>
+                    <div style="font-size: 14px; color: #a0aec0; margin-bottom: 16px;">{pos_pct} of all users</div>
+                    <div style="border-top: 1px solid rgba(46,139,87,0.3); padding-top: 14px; font-size: 13px; color: #8b9dc3;">
+                        Avg Confidence: <span style="color: #2E8B57; font-weight: 600;">{avg_pos_conf}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with card_right:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #3a1a1a 0%, #0d1117 100%); border: 1px solid #B2413E; border-radius: 12px; padding: 28px 24px; text-align: center;">
+                    <div style="font-size: 14px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Negative Predictions</div>
+                    <div style="font-size: 42px; font-weight: 700; color: #B2413E; margin-bottom: 4px;">{len(neg_users):,}</div>
+                    <div style="font-size: 14px; color: #a0aec0; margin-bottom: 16px;">{neg_pct} of all users</div>
+                    <div style="border-top: 1px solid rgba(178,65,62,0.3); padding-top: 14px; font-size: 13px; color: #8b9dc3;">
+                        Avg Confidence: <span style="color: #B2413E; font-weight: 600;">{avg_neg_conf}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.divider()
+
         if roadmap.empty:
             st.info("No canonical intent requests found yet to build roadmap signals.")
         else:
@@ -3668,109 +3955,6 @@ def main() -> None:
             )
         else:
             st.info("Prediction snapshot card is unavailable because per-user XGBoost predictions were not found.")
-
-        with st.expander("Advanced: Embedding Model Predictions", expanded=False):
-            st.caption("Internal model outputs from embedding-based classifier.")
-            pred_df = load_xgb_user_predictions()
-            report = load_xgb_target_report()
-            model_exists, model_name = get_xgb_model_artifact_status()
-
-            if not report.empty:
-                r = report.iloc[0]
-                t1, t2, t3, t4 = st.columns(4)
-                t1.metric("Target Source", str(r.get("target_source", "N/A")).replace("_", " ").title())
-                t2.metric("Accuracy", f"{float(r.get('accuracy', np.nan)):.3f}" if pd.notna(r.get("accuracy", np.nan)) else "N/A")
-                t3.metric("AUC", f"{float(r.get('auc', np.nan)):.3f}" if pd.notna(r.get("auc", np.nan)) else "N/A")
-                t4.metric(
-                    "Scale Pos Weight",
-                    f"{float(r.get('scale_pos_weight', np.nan)):.3f}" if pd.notna(r.get("scale_pos_weight", np.nan)) else "N/A",
-                )
-
-                u1, u2, u3, u4 = st.columns(4)
-                u1.metric("Train Pos", f"{int(r.get('train_pos', 0)):,}")
-                u2.metric("Train Neg", f"{int(r.get('train_neg', 0)):,}")
-                if int(r.get("train_pos", 0)) > 0 and int(r.get("train_neg", 0)) > 0:
-                    imbalance = int(r.get("train_pos", 0)) / max(1, int(r.get("train_neg", 0)))
-                    u3.metric("Pos:Neg Ratio", f"{imbalance:.2f}")
-                else:
-                    u3.metric("Pos:Neg Ratio", "N/A")
-                u4.metric("Model Artifact", "Present" if model_exists else "Missing")
-                st.caption(f"Model file: {model_name}")
-                if "model_artifact" in report.columns and pd.notna(r.get("model_artifact", np.nan)):
-                    st.caption(f"Reported path: {str(r.get('model_artifact'))}")
-                if not model_exists:
-                    st.info("No saved XGBoost model artifact found. Re-run training to generate artifacts/xgb/xgb_model.json.")
-
-            if pred_df.empty:
-                st.info("No xgb_user_predictions.csv found. Re-run train_xgb_shap_sentiment.py to generate per-user predictions.")
-            else:
-                names = load_user_directory()
-                pred_view = pred_df.copy()
-                if not names.empty:
-                    pred_view = pred_view.merge(names, on="user_id", how="left")
-                    pred_view["user"] = pred_view["display_name"].fillna("User (" + pred_view["user_id"].astype(str) + ")")
-                else:
-                    pred_view["user"] = "User (" + pred_view["user_id"].astype(str) + ")"
-                pred_view["pred_prob_negative"] = 1.0 - pred_view["pred_prob_positive"].astype(float)
-                pred_view = pred_view.sort_values("pred_prob_positive", ascending=False)
-
-                p1, p2, p3 = st.columns(3)
-                p1.metric("Users Scored", f"{len(pred_view):,}")
-                p2.metric("Predicted Positive Rate", f"{(pred_view['pred_prob_positive'] >= 0.5).mean():.1%}")
-                p3.metric("Avg Positive Probability", f"{pred_view['pred_prob_positive'].mean():.3f}")
-
-                health = compute_xgb_prediction_health(pred_view)
-                d1, d2, d3 = st.columns(3)
-                d1.metric("Avg Confidence", f"{float(health['avg_confidence']):.1%}")
-                d2.metric("Confidence StdDev", f"{float(health['confidence_std']):.3f}")
-                d3.metric("Prediction Dominance", f"{float(health['dominance']):.1%}")
-
-                all_rows = pred_view.sort_values("pred_prob_positive", ascending=True).copy()
-                prob_long = all_rows.melt(
-                    id_vars=["user", "user_id", "predicted_class", "confidence"],
-                    value_vars=["pred_prob_positive", "pred_prob_negative"],
-                    var_name="probability_type",
-                    value_name="probability",
-                )
-                prob_long["probability_type"] = prob_long["probability_type"].replace(
-                    {
-                        "pred_prob_positive": "Positive Probability",
-                        "pred_prob_negative": "Negative Probability",
-                    }
-                )
-                chart_h = int(min(max(500, 18 * len(all_rows) + 120), 2200))
-                fig_pred = px.bar(
-                    prob_long,
-                    x="probability",
-                    y="user",
-                    color="probability_type",
-                    barmode="group",
-                    orientation="h",
-                    title="All Users: Positive vs Negative Probability",
-                    hover_data=["user_id", "predicted_class", "confidence"],
-                    color_discrete_map={
-                        "Positive Probability": "#2E8B57",
-                        "Negative Probability": "#B2413E",
-                    },
-                )
-                style_chart(fig_pred, height=chart_h, x_title="Probability", y_title="User")
-                fig_pred.update_xaxes(range=[0, 1])
-                st.plotly_chart(fig_pred, width="stretch")
-
-                out_cols = [
-                    c
-                    for c in [
-                        "user",
-                        "user_id",
-                        "predicted_class",
-                        "pred_prob_positive",
-                        "pred_prob_negative",
-                        "confidence",
-                        "target",
-                    ]
-                    if c in pred_view.columns
-                ]
-                st.dataframe(pred_view[out_cols], width="stretch", height=520)
         return
 
 
@@ -3818,11 +4002,13 @@ def main() -> None:
     if "refresh_by_user" not in st.session_state:
         st.session_state["refresh_by_user"] = {}
     refresh_by_user = st.session_state["refresh_by_user"]
-
     if page == "Global Insights":
-        global_tasks = build_task_importance(sentiment_df, user_id=None, top_k=20)
-        global_feature_focus = build_feature_focus_summary(sentiment_df, top_k=12)
-        global_statements = build_representative_statements(sentiment_df, user_id=None, top_k=12)
+        global_tasks = build_task_importance(sentiment_df, user_id=None, top_k=20).fillna(0)
+        global_feature_focus = build_feature_focus_summary(sentiment_df, top_k=12).fillna(0)
+        if "sample_requests" in global_feature_focus.columns:
+            global_feature_focus["sample_requests"] = global_feature_focus["sample_requests"].fillna("")
+            
+        global_statements = build_representative_statements(sentiment_df, user_id=None, top_k=12).fillna(0)
 
         g1, g2, g3 = st.columns(3)
         g1.metric("Total Users", f"{scores['user_id'].nunique()}")
@@ -3836,7 +4022,7 @@ def main() -> None:
                 st.info("No sentiment rows found in preprocessed messages.")
             else:
                 sent_counts = sentiment_df.copy()
-                sent_counts["sentiment"] = sent_counts["sentiment"].fillna("").astype(str).str.lower().str.strip()
+                sent_counts["sentiment"] = sent_counts["sentiment"].fillna("neutral").astype(str).str.lower().str.strip()
                 sent_counts = sent_counts[sent_counts["sentiment"].isin(["positive", "negative", "neutral"])]
                 sent_counts = sent_counts.groupby("sentiment").size().reset_index(name="count")
                 fig_pie = px.pie(
@@ -3848,8 +4034,8 @@ def main() -> None:
                     color_discrete_map=SENTIMENT_COLORS,
                     category_orders={"sentiment": ["positive", "neutral", "negative"]},
                 )
-                style_chart(fig_pie, height=420, kind="pie")
-                st.plotly_chart(fig_pie, width="stretch")
+                fig_pie = style_chart(fig_pie, height=420, kind="pie")
+                st.plotly_chart(fig_pie, use_container_width=True)
 
         with right:
             st.subheader("Global Sentiment Over Time")
@@ -3858,12 +4044,13 @@ def main() -> None:
                 st.info("No timestamped sentiment rows available.")
             else:
                 time_df["date"] = time_df["created_at"].dt.date
-                daily = time_df.groupby("date", as_index=False).agg(avg_polarity=("polarity", "mean"))
-                fig_time = px.line(daily, x="date", y="avg_polarity", markers=True)
-                fig_time.add_hline(y=0.1, line_dash="dash")
-                fig_time.add_hline(y=-0.1, line_dash="dash")
-                style_chart(fig_time, height=420, x_title="Date", y_title="Average Polarity")
-                st.plotly_chart(fig_time, width="stretch")
+                daily = time_df.groupby("date", as_index=False).agg(avg_polarity=("polarity", "mean")).fillna(0)
+                daily["date_str"] = daily["date"].astype(str)
+                fig_time = px.line(daily, x="date_str", y="avg_polarity", markers=True)
+                fig_time.add_hline(y=0.1, line_dash="dash", line_color="rgba(255,255,255,0.2)")
+                fig_time.add_hline(y=-0.1, line_dash="dash", line_color="rgba(255,255,255,0.2)")
+                fig_time = style_chart(fig_time, height=420, x_title="Date", y_title="Average Polarity")
+                st.plotly_chart(fig_time, use_container_width=True)
 
         st.subheader("RAG Focus Opportunities (Global User Requests)")
         if global_feature_focus.empty:
@@ -3887,7 +4074,7 @@ def main() -> None:
             st.dataframe(focus_table, width="stretch", height=300)
             st.caption("Use high-mention clusters as top RAG coverage priorities, then inspect sample request phrases for intent granularity.")
 
-    else:
+    elif page == "Per-User Analysis":
         st.subheader("Per-User Controls")
         control_left, control_mid, control_right = st.columns([2.5, 2.2, 1.0])
         with control_left:
