@@ -3472,27 +3472,32 @@ def main() -> None:
                 st.caption("Risk categories are derived from the population percentiles of the dissatisfaction scores.")
 
                 st.subheader("Most Vulnerable Users")
-                top_vulnerable = dissatisfaction_df.sort_values("dissatisfaction_score", ascending=False).head(15).copy()
-                if not user_directory.empty:
-                    # Map IDs to display names for better readability
-                    names = user_directory[["user_id", "display_name"]].drop_duplicates("user_id")
-                    top_vulnerable = top_vulnerable.merge(names, on="user_id", how="left")
-                    top_vulnerable["user_label"] = top_vulnerable["display_name"].fillna("User " + top_vulnerable["user_id"].astype(str))
+                # Only include users with enough messages for a meaningful signal
+                MIN_MSG_THRESHOLD = 10
+                qualified = dissatisfaction_df[dissatisfaction_df["msg_count"] >= MIN_MSG_THRESHOLD].copy()
+                if qualified.empty:
+                    st.info(f"No users with ≥{MIN_MSG_THRESHOLD} messages to rank.")
                 else:
-                    top_vulnerable["user_label"] = "User " + top_vulnerable["user_id"].astype(str)
+                    top_vulnerable = qualified.sort_values("dissatisfaction_score", ascending=False).head(15).copy()
+                    if not user_directory.empty:
+                        names = user_directory[["user_id", "display_name"]].drop_duplicates("user_id")
+                        top_vulnerable = top_vulnerable.merge(names, on="user_id", how="left")
+                        top_vulnerable["user_label"] = top_vulnerable["display_name"].fillna("User " + top_vulnerable["user_id"].astype(str))
+                    else:
+                        top_vulnerable["user_label"] = "User " + top_vulnerable["user_id"].astype(str)
 
-                fig_vulnerable = px.bar(
-                    top_vulnerable.sort_values("dissatisfaction_score", ascending=True),
-                    x="dissatisfaction_score",
-                    y="user_label",
-                    orientation="h",
-                    title="Top 15 Most Vulnerable Users",
-                    hover_data=["dissatisfaction_reason", "avg_sentiment", "neg_ratio"]
-                )
-                style_chart(fig_vulnerable, height=550, x_title="Dissatisfaction Score", y_title="User")
-                fig_vulnerable.update_traces(marker_color="#B2413E")
-                st.plotly_chart(fig_vulnerable, width="stretch")
-                st.caption("Hover over bars to see specific risk drivers and sentiment metrics for each user.")
+                    fig_vulnerable = px.bar(
+                        top_vulnerable.sort_values("dissatisfaction_score", ascending=True),
+                        x="dissatisfaction_score",
+                        y="user_label",
+                        orientation="h",
+                        title="Top 15 Most Vulnerable Users",
+                        hover_data=["dissatisfaction_reason", "avg_sentiment", "neg_ratio", "msg_count"]
+                    )
+                    style_chart(fig_vulnerable, height=550, x_title="Dissatisfaction Score", y_title="User")
+                    fig_vulnerable.update_traces(marker_color="#B2413E")
+                    st.plotly_chart(fig_vulnerable, width="stretch")
+                    st.caption(f"Showing users with ≥{MIN_MSG_THRESHOLD} messages. Hover for risk drivers.")
 
             return
 
