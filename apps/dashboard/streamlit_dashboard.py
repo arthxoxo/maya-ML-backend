@@ -2671,12 +2671,13 @@ def load_user_dissatisfaction_flags() -> pd.DataFrame:
 
     agg["dissatisfaction_score"] = 0.55 * neg_ratio_scaled + 0.45 * neg_strength
 
-    # Tighten thresholds so "Medium" is a narrower band and the dashboard
-    # does not over-label mildly negative users as dissatisfied.
-    q90 = float(agg["dissatisfaction_score"].quantile(0.90)) if not agg.empty else 0.0
-    q75 = float(agg["dissatisfaction_score"].quantile(0.75)) if not agg.empty else 0.0
-    high_cutoff = max(q90, 0.40)
-    medium_cutoff = max(q75, 0.22)
+    # Further lower thresholds to rebalance the distribution.
+    # Using 85th and 65th percentiles with minimal floors to ensure
+    # more users are flagged for review.
+    q85 = float(agg["dissatisfaction_score"].quantile(0.85)) if not agg.empty else 0.0
+    q65 = float(agg["dissatisfaction_score"].quantile(0.65)) if not agg.empty else 0.0
+    high_cutoff = max(q85, 0.06)
+    medium_cutoff = max(q65, 0.02)
 
     def bucket(v: float) -> str:
         if v >= high_cutoff:
@@ -2994,7 +2995,6 @@ def main() -> None:
             "Global Insights",
             "Per-User Analysis",
             "RAG Roadmap Signals",
-            "Persona Analysis",
             "Global Sentiment Analysis",
             "Per-User Sentiment Analysis",
         ],
@@ -3192,6 +3192,66 @@ def main() -> None:
                         ),
                     )
                     st.plotly_chart(fig_drift, width="stretch")
+
+            st.divider()
+            st.subheader("Global Dissatisfaction Analysis")
+            dissatisfaction_df = load_user_dissatisfaction_flags()
+            if dissatisfaction_df.empty:
+                st.info("Dissatisfaction scores unavailable (sentiment_scores.csv not found).")
+            else:
+                avg_risk = dissatisfaction_df["dissatisfaction_score"].mean()
+                high_risk_count = (dissatisfaction_df["dissatisfaction_flag"] == "High").sum()
+                med_risk_count = (dissatisfaction_df["dissatisfaction_flag"] == "Medium").sum()
+                
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Population Avg Risk", f"{avg_risk:.3f}")
+                r1.caption("Composite score of negative ratio and sentiment strength.")
+                
+                r2.metric("High Risk Users", f"{high_risk_count:,}")
+                r2.caption(f"{(high_risk_count/len(dissatisfaction_df)):.1%} of tracked population.")
+                
+                r3.metric("Medium Risk Users", f"{med_risk_count:,}")
+                r3.caption(f"{(med_risk_count/len(dissatisfaction_df)):.1%} of tracked population.")
+
+                risk_counts = dissatisfaction_df.groupby("dissatisfaction_flag").size().reset_index(name="users")
+                order = ["High", "Medium", "Low"]
+                risk_counts["dissatisfaction_flag"] = pd.Categorical(risk_counts["dissatisfaction_flag"], categories=order, ordered=True)
+                risk_counts = risk_counts.sort_values("dissatisfaction_flag")
+                fig_risk = px.bar(
+                    risk_counts,
+                    x="dissatisfaction_flag",
+                    y="users",
+                    color="dissatisfaction_flag",
+                    color_discrete_map=RISK_COLORS,
+                    title="User Distribution By Dissatisfaction Risk",
+                )
+                style_chart(fig_risk, height=450, x_title="Risk Level", y_title="Users")
+                st.plotly_chart(fig_risk, width="stretch")
+                st.caption("Risk categories are derived from the population percentiles of the dissatisfaction scores.")
+
+                st.subheader("Most Vulnerable Users")
+                top_vulnerable = dissatisfaction_df.sort_values("dissatisfaction_score", ascending=False).head(15).copy()
+                if not user_directory.empty:
+                    # Map IDs to display names for better readability
+                    names = user_directory[["user_id", "display_name"]].drop_duplicates("user_id")
+                    top_vulnerable = top_vulnerable.merge(names, on="user_id", how="left")
+                    top_vulnerable["user_label"] = top_vulnerable["display_name"].fillna("User " + top_vulnerable["user_id"].astype(str))
+                else:
+                    top_vulnerable["user_label"] = "User " + top_vulnerable["user_id"].astype(str)
+
+                fig_vulnerable = px.bar(
+                    top_vulnerable.sort_values("dissatisfaction_score", ascending=True),
+                    x="dissatisfaction_score",
+                    y="user_label",
+                    color="dissatisfaction_flag",
+                    color_discrete_map=RISK_COLORS,
+                    orientation="h",
+                    title="Top 15 Most Vulnerable Users",
+                    hover_data=["dissatisfaction_reason", "avg_sentiment", "neg_ratio"]
+                )
+                style_chart(fig_vulnerable, height=550, x_title="Dissatisfaction Score", y_title="User")
+                st.plotly_chart(fig_vulnerable, width="stretch")
+                st.caption("Hover over bars to see specific risk drivers and sentiment metrics for each user.")
 
             return
 
@@ -3677,158 +3737,6 @@ def main() -> None:
                 st.dataframe(pred_view[out_cols], width="stretch", height=520)
         return
 
-    if page == "Persona Analysis":
-        persona_table, persona_profiles, persona_importance = load_persona_outputs()
-        persona_user_shap = load_persona_user_shap()
-        persona_user_directory = load_user_directory()
-        dissatisfaction_df = load_user_dissatisfaction_flags()
-
-        if persona_table.empty or persona_profiles.empty:
-            st.info("Persona outputs not found. Run build_user_personas.py first.")
-            return
-
-        m1, m2, m3 = st.columns(3)
-        with m1: executive_card("Users With Persona", f"{persona_table['user_id'].nunique():,}")
-        with m2: executive_card("Total Personas", f"{persona_profiles['persona_label'].nunique():,}")
-        with m3: executive_card("Largest Persona", str(persona_profiles.sort_values('users', ascending=False).iloc[0]['persona_label']))
-        st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
-
-        left, right = st.columns(2)
-        with left:
-            st.subheader("Persona Distribution")
-            dist = persona_profiles[["persona_label", "users"]].copy().sort_values("users", ascending=False)
-            fig_dist = px.bar(dist, x="persona_label", y="users", title="Users Per Persona")
-            style_chart(fig_dist, height=420, x_title="Persona", y_title="Users", rotate_x=True)
-            st.plotly_chart(fig_dist, width="stretch")
-
-        with right:
-            st.subheader("Persona Sentiment Profile")
-            if "avg_sentiment" in persona_profiles.columns:
-                fig_sent = px.bar(
-                    persona_profiles.sort_values("avg_sentiment", ascending=False),
-                    x="persona_label",
-                    y="avg_sentiment",
-                    color="avg_sentiment",
-                    color_continuous_scale=SENTIMENT_DIVERGING_SCALE,
-                    color_continuous_midpoint=0.0,
-                    title="Average Sentiment By Persona",
-                )
-                style_chart(fig_sent, height=420, x_title="Persona", y_title="Avg Sentiment", rotate_x=True)
-                st.plotly_chart(fig_sent, width="stretch")
-
-        st.subheader("Persona-Level Summaries")
-        st.dataframe(persona_profiles.sort_values("users", ascending=False), width="stretch", height=300)
-
-        st.subheader("Global Feature Importance (Behavior Only)")
-        if persona_importance.empty:
-            st.info("No persona feature importance file found.")
-        else:
-            geo_noise = ["latitude", "longitude", "timezone", "country"]
-            keep_mask = ~persona_importance["feature"].astype(str).str.contains("|".join(geo_noise), case=False, regex=True)
-            imp_clean = persona_importance[keep_mask].copy()
-            fig_fi = px.bar(
-                imp_clean.head(15).sort_values("importance", ascending=True),
-                x="importance",
-                y="feature",
-                orientation="h",
-                title="Global Persona Drivers (Geographic Noise Removed)",
-            )
-            style_chart(fig_fi, height=500, x_title="Importance", y_title="Feature")
-            st.plotly_chart(fig_fi, width="stretch")
-
-        st.subheader("Top 3 Reasons By Persona")
-        reason_summary = summarize_persona_reasons(persona_table)
-        if reason_summary.empty:
-            st.info("No persona reason summaries available.")
-        else:
-            st.dataframe(reason_summary, width="stretch", height=240)
-
-        st.subheader("User Persona Table")
-        if not persona_user_directory.empty and "user_id" in persona_table.columns:
-            view_names = persona_user_directory[["user_id", "display_name"]].drop_duplicates("user_id")
-            persona_table = persona_table.merge(view_names, on="user_id", how="left")
-            persona_table["user"] = persona_table["display_name"].fillna("User")
-            persona_table.loc[persona_table["display_name"].isna(), "user"] = (
-                "User (" + persona_table["user_id"].astype(str) + ")"
-            )
-            persona_table = persona_table.drop(columns=["display_name"])
-            ordered_cols = [
-                "user",
-                "user_id",
-                "persona_label",
-                "top_reason_1",
-                "top_reason_2",
-                "top_reason_3",
-            ]
-            persona_table = persona_table[[c for c in ordered_cols if c in persona_table.columns]]
-
-        if not dissatisfaction_df.empty and "user_id" in persona_table.columns:
-            persona_table = persona_table.merge(
-                dissatisfaction_df[["user_id", "dissatisfaction_flag", "dissatisfaction_score", "dissatisfaction_reason"]],
-                on="user_id",
-                how="left",
-            )
-
-        st.subheader("Dissatisfaction Risk Distribution")
-        if not dissatisfaction_df.empty:
-            risk_counts = dissatisfaction_df.groupby("dissatisfaction_flag").size().reset_index(name="users")
-            order = ["High", "Medium", "Low"]
-            risk_counts["dissatisfaction_flag"] = pd.Categorical(risk_counts["dissatisfaction_flag"], categories=order, ordered=True)
-            risk_counts = risk_counts.sort_values("dissatisfaction_flag")
-            fig_risk = px.bar(
-                risk_counts,
-                x="dissatisfaction_flag",
-                y="users",
-                color="dissatisfaction_flag",
-                color_discrete_map=RISK_COLORS,
-                title="Users By Dissatisfaction Risk",
-            )
-            style_chart(fig_risk, height=360, x_title="Risk", y_title="Users")
-            st.plotly_chart(fig_risk, width="stretch")
-        else:
-            st.info("Dissatisfaction scores unavailable (sentiment_scores.csv not found or missing required columns).")
-
-        persona_labels = sorted(persona_table["persona_label"].dropna().astype(str).unique().tolist())
-        selected_persona = st.selectbox("Filter By Persona", ["All"] + persona_labels)
-        sentiment_filter = st.sidebar.selectbox("Persona Sentiment Filter", ["All", "Needs Help", "Steady", "Happy"], key="persona_sent_filter")
-        activity_filter = st.sidebar.selectbox("Persona Activity Filter", ["All", "Very Active", "Less Active"], key="persona_act_filter")
-        view = persona_table.copy()
-        if selected_persona != "All":
-            view = view[view["persona_label"].astype(str) == selected_persona]
-        if sentiment_filter != "All":
-            view = view[view["persona_label"].astype(str).str.contains(sentiment_filter, case=False, na=False)]
-        if activity_filter != "All":
-            view = view[view["persona_label"].astype(str).str.contains(activity_filter, case=False, na=False)]
-        st.dataframe(view.sort_values("user_id"), width="stretch", height=420)
-
-        st.subheader("Per-User Exact Feature Analysis")
-        if persona_user_shap.empty:
-            st.info("No per-user SHAP contribution file found. Re-run build_user_personas.py.")
-        else:
-            users = sorted(persona_user_shap["user_id"].dropna().astype(int).unique().tolist())
-            selected_uid = st.selectbox("Select User For Exact Analysis", users)
-            u_df = persona_user_shap[persona_user_shap["user_id"] == selected_uid].copy()
-            u_df = u_df.sort_values("abs_shap", ascending=False)
-
-            u_meta = persona_table[persona_table["user_id"] == selected_uid].head(1)
-            if not u_meta.empty:
-                user_name = u_meta["user"].iloc[0] if "user" in u_meta.columns else f"User ({selected_uid})"
-                risk = u_meta["dissatisfaction_flag"].iloc[0] if "dissatisfaction_flag" in u_meta.columns else "N/A"
-                st.caption(f"User: {user_name} | Persona: {u_meta['persona_label'].iloc[0]} | Dissatisfaction Risk: {risk}")
-                if "dissatisfaction_reason" in u_meta.columns and pd.notna(u_meta["dissatisfaction_reason"].iloc[0]):
-                    st.caption(f"Risk Driver: {u_meta['dissatisfaction_reason'].iloc[0]}")
-
-            fig_u = px.bar(
-                u_df.head(12).sort_values("abs_shap", ascending=True),
-                x="abs_shap",
-                y="feature",
-                orientation="h",
-                title=f"Top Local Drivers For User {selected_uid}",
-            )
-            style_chart(fig_u, height=460, x_title="|SHAP| Contribution", y_title="Feature")
-            st.plotly_chart(fig_u, width="stretch")
-            st.dataframe(u_df.head(20), width="stretch", height=320)
-        return
 
     scores, global_imp, per_user_imp = load_outputs(refresh_nonce)
     user_directory = load_user_directory()
@@ -4195,6 +4103,8 @@ def main() -> None:
 
             show_cols = ["created_at", "source", "message", "polarity", "subjectivity", "sentiment"]
             st.dataframe(user_sent[show_cols].sort_values("created_at", ascending=False).head(25), width="stretch", height=360)
+
+
 
 
 if __name__ == "__main__":
