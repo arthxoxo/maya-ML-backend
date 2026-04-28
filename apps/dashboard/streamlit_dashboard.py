@@ -4082,6 +4082,10 @@ def main() -> None:
     elif page == "Per-User Analysis":
         st.subheader("Per-User Controls")
         control_left, control_mid, control_right = st.columns([2.5, 2.2, 1.0])
+        # Only show users who have actually sent messages
+        sentiment_user_ids = set(sentiment_df["user_id"].dropna().astype(int).unique()) if not sentiment_df.empty else set()
+        active_users = sorted([u for u in score_users if u in sentiment_user_ids]) if sentiment_user_ids else score_users
+
         with control_left:
             search_query = st.text_input(
                 "Search User (Name or ID)",
@@ -4091,14 +4095,14 @@ def main() -> None:
             ).strip().lower()
         matching_users = [
             uid
-            for uid in score_users
+            for uid in active_users
             if not search_query
             or search_query in display_map.get(uid, "").lower()
             or search_query in str(uid)
         ]
         if not matching_users:
             st.warning("No users matched your search. Showing full user list.")
-            matching_users = score_users
+            matching_users = active_users
 
         current_selected = int(st.session_state.get("selected_user_per_user", matching_users[0]))
         if current_selected not in matching_users:
