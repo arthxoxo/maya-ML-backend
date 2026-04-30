@@ -114,21 +114,28 @@ def render(refresh_nonce: str, display_map: dict[int, str], score_users: list[in
         if radar_scores.empty:
             st.info("No recent interactions available for radar scoring.")
         else:
+            emotion = float(radar_scores["emotion"].mean())
+            intent = float(radar_scores["intent"].mean())
+            aspect = float(radar_scores["aspect"].mean())
+            theta = ["Emotion", "Intent", "Aspect", "Emotion"]
+            r = [emotion, intent, aspect, emotion]
+            
             fig_radar = go.Figure(data=go.Scatterpolar(
-                r=radar_scores["score"],
-                theta=radar_scores["dimension"],
+                r=r,
+                theta=theta,
                 fill='toself',
                 marker_color='#d4af37',
             ))
             fig_radar.update_layout(
                 polar=dict(
-                    radialaxis=dict(visible=True, range=[-1, 1], gridcolor="rgba(255,255,255,0.1)"),
+                    radialaxis=dict(visible=True, range=[0, 100], gridcolor="rgba(255,255,255,0.1)"),
                     bgcolor="rgba(0,0,0,0)",
                 ),
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(l=40, r=40, t=40, b=40),
             )
             st.plotly_chart(fig_radar, use_container_width=True)
+            st.caption("Scores summarize the latest 5 user interactions.")
 
     st.divider()
     g1, g2 = st.columns(2)
@@ -197,20 +204,33 @@ def render(refresh_nonce: str, display_map: dict[int, str], score_users: list[in
             st.plotly_chart(fig_pie, width="stretch")
 
         with d2:
-            time_df = user_sent.dropna(subset=["created_at"]).sort_values("created_at")
+            time_df = user_sent.dropna(subset=["created_at"]).sort_values("created_at").copy()
             if not time_df.empty:
-                fig_time = px.line(
-                    time_df,
-                    x="created_at",
-                    y="polarity",
-                    color="source",
-                    markers=True,
-                    title="Sentiment Over Time",
-                )
-                fig_time.add_hline(y=0.1, line_dash="dash")
-                fig_time.add_hline(y=-0.1, line_dash="dash")
+                time_df["rolling_avg"] = time_df["polarity"].rolling(window=min(10, len(time_df)), min_periods=1).mean()
+                
+                fig_time = go.Figure()
+                fig_time.add_trace(go.Scatter(
+                    x=time_df["created_at"],
+                    y=time_df["polarity"],
+                    mode="markers",
+                    name="Raw Message",
+                    marker=dict(color="#d4af37", size=6, opacity=0.35),
+                    showlegend=False
+                ))
+                fig_time.add_trace(go.Scatter(
+                    x=time_df["created_at"],
+                    y=time_df["rolling_avg"],
+                    mode="lines",
+                    name="Moving Avg",
+                    line=dict(color="#d4af37", width=3, shape="spline"),
+                    showlegend=False
+                ))
+                
+                fig_time.update_layout(title="Sentiment Over Time (Trend)")
+                fig_time.add_hline(y=0.1, line_dash="dash", line_color="rgba(255,255,255,0.2)")
+                fig_time.add_hline(y=-0.1, line_dash="dash", line_color="rgba(255,255,255,0.2)")
                 style_chart(fig_time, height=400, x_title="Timestamp", y_title="Sentiment Score")
-                st.plotly_chart(fig_time, width="stretch")
+                st.plotly_chart(fig_time, use_container_width=True)
 
         show_cols = ["created_at", "source", "message", "polarity", "subjectivity", "sentiment"]
         st.dataframe(user_sent[show_cols].sort_values("created_at", ascending=False).head(25), width="stretch", height=360)
