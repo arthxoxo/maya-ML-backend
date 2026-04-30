@@ -632,14 +632,12 @@ def main() -> None:
         feat_matrix = feat_matrix.dropna(subset=["user_id"]).copy()
         feat_matrix["user_id"] = feat_matrix["user_id"].astype(int)
 
-        # Select the most informative behavioral features
+        # Select the most informative behavioral features (Leaky sentiment features removed)
         candidate_behavioral_cols = [
             "total_messages_sent", "unique_sessions", "avg_message_length",
             "question_ratio", "avg_conversation_depth",
             "total_input_tokens", "total_output_tokens", "total_cost_usd",
             "active_days_count", "messages_per_active_day",
-            "avg_sentiment", "sentiment_std", "negative_msg_ratio", "positive_msg_ratio",
-            "neutral_msg_ratio", "sentiment_volatility",
             "total_sessions", "avg_session_duration_sec", "total_session_duration_sec",
             "sessions_per_week", "session_completion_rate",
             "total_words", "unique_words", "vocabulary_richness",

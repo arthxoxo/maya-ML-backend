@@ -1377,11 +1377,17 @@ def build_tool_usage_signals(sentiment_df: pd.DataFrame) -> pd.DataFrame:
         
     def get_pos_sample(group):
         if group.empty: return ""
-        return group.loc[group["polarity"].idxmax()]["sample_text"]
+        max_idx = group["polarity"].idxmax()
+        if group.loc[max_idx]["polarity"] > 0.15:
+            return group.loc[max_idx]["sample_text"]
+        return "-"
 
     def get_neg_sample(group):
         if group.empty: return ""
-        return group.loc[group["polarity"].idxmin()]["sample_text"]
+        min_idx = group["polarity"].idxmin()
+        if group.loc[min_idx]["polarity"] < -0.15:
+            return group.loc[min_idx]["sample_text"]
+        return "-"
 
     out = req.groupby(["category", "tool_action"], as_index=False).agg(
         mentions=("tool_action", "size"),

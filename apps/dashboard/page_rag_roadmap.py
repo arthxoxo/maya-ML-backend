@@ -48,33 +48,51 @@ def render(refresh_nonce: str) -> None:
 
             # Exclude insufficient_data users — they have no real signal
             valid_pred = pred_view[pred_view["predicted_class"].astype(str).str.lower().str.strip() != "insufficient_data"].copy()
-            pos_users = valid_pred[valid_pred["pred_prob_positive"] >= 0.5]
-            neg_users = valid_pred[valid_pred["pred_prob_positive"] < 0.5]
+            
+            # Using a tighter confidence gate to avoid forcing neutral users into binary buckets
+            pos_users = valid_pred[valid_pred["pred_prob_positive"] >= 0.7]
+            neg_users = valid_pred[valid_pred["pred_prob_positive"] <= 0.3]
+            neu_users = valid_pred[(valid_pred["pred_prob_positive"] > 0.3) & (valid_pred["pred_prob_positive"] < 0.7)]
+            
             pos_pct = f"{len(pos_users) / len(valid_pred):.1%}" if len(valid_pred) > 0 else "0%"
             neg_pct = f"{len(neg_users) / len(valid_pred):.1%}" if len(valid_pred) > 0 else "0%"
+            neu_pct = f"{len(neu_users) / len(valid_pred):.1%}" if len(valid_pred) > 0 else "0%"
+            
             avg_pos_conf = f"{pos_users['confidence'].mean():.1%}" if not pos_users.empty else "N/A"
             avg_neg_conf = f"{neg_users['confidence'].mean():.1%}" if not neg_users.empty else "N/A"
+            avg_neu_conf = f"{neu_users['confidence'].mean():.1%}" if not neu_users.empty else "N/A"
 
-            card_left, card_right = st.columns(2)
-            with card_left:
+            c1, c2, c3 = st.columns(3)
+            with c1:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #1a3a2a 0%, #0d1117 100%); border: 1px solid #2E8B57; border-radius: 12px; padding: 28px 24px; text-align: center;">
-                    <div style="font-size: 14px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Positive Predictions</div>
-                    <div style="font-size: 42px; font-weight: 700; color: #2E8B57; margin-bottom: 4px;">{len(pos_users):,}</div>
-                    <div style="font-size: 14px; color: #a0aec0; margin-bottom: 16px;">{pos_pct} of all users</div>
-                    <div style="border-top: 1px solid rgba(46,139,87,0.3); padding-top: 14px; font-size: 13px; color: #8b9dc3;">
-                        Avg Confidence: <span style="color: #2E8B57; font-weight: 600;">{avg_pos_conf}</span>
+                <div style="background: linear-gradient(135deg, #1a3a2a 0%, #0d1117 100%); border: 1px solid #2E8B57; border-radius: 12px; padding: 20px 16px; text-align: center; height: 210px;">
+                    <div style="font-size: 12px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Positive</div>
+                    <div style="font-size: 36px; font-weight: 700; color: #2E8B57; margin-bottom: 4px;">{len(pos_users):,}</div>
+                    <div style="font-size: 13px; color: #a0aec0; margin-bottom: 12px;">{pos_pct} of users</div>
+                    <div style="border-top: 1px solid rgba(46,139,87,0.2); padding-top: 12px; font-size: 12px; color: #8b9dc3;">
+                        Conf: <span style="color: #2E8B57;">{avg_pos_conf}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-            with card_right:
+            with c2:
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #3a1a1a 0%, #0d1117 100%); border: 1px solid #B2413E; border-radius: 12px; padding: 28px 24px; text-align: center;">
-                    <div style="font-size: 14px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Negative Predictions</div>
-                    <div style="font-size: 42px; font-weight: 700; color: #B2413E; margin-bottom: 4px;">{len(neg_users):,}</div>
-                    <div style="font-size: 14px; color: #a0aec0; margin-bottom: 16px;">{neg_pct} of all users</div>
-                    <div style="border-top: 1px solid rgba(178,65,62,0.3); padding-top: 14px; font-size: 13px; color: #8b9dc3;">
-                        Avg Confidence: <span style="color: #B2413E; font-weight: 600;">{avg_neg_conf}</span>
+                <div style="background: linear-gradient(135deg, #1e2a3a 0%, #0d1117 100%); border: 1px solid #4a5568; border-radius: 12px; padding: 20px 16px; text-align: center; height: 210px;">
+                    <div style="font-size: 12px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Neutral/Transactional</div>
+                    <div style="font-size: 36px; font-weight: 700; color: #a0aec0; margin-bottom: 4px;">{len(neu_users):,}</div>
+                    <div style="font-size: 13px; color: #a0aec0; margin-bottom: 12px;">{neu_pct} of users</div>
+                    <div style="border-top: 1px solid rgba(160,174,192,0.2); padding-top: 12px; font-size: 12px; color: #8b9dc3;">
+                        Conf: <span style="color: #a0aec0;">{avg_neu_conf}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            with c3:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #3a1a1a 0%, #0d1117 100%); border: 1px solid #B2413E; border-radius: 12px; padding: 20px 16px; text-align: center; height: 210px;">
+                    <div style="font-size: 12px; color: #8b9dc3; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;">Negative</div>
+                    <div style="font-size: 36px; font-weight: 700; color: #B2413E; margin-bottom: 4px;">{len(neg_users):,}</div>
+                    <div style="font-size: 13px; color: #a0aec0; margin-bottom: 12px;">{neg_pct} of users</div>
+                    <div style="border-top: 1px solid rgba(178,65,62,0.2); padding-top: 12px; font-size: 12px; color: #8b9dc3;">
+                        Conf: <span style="color: #B2413E;">{avg_neg_conf}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
