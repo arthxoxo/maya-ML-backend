@@ -13,7 +13,7 @@ import streamlit as st
 
 from apps.dashboard.shared import (
     SENTIMENT_COLORS, SENTIMENT_DIVERGING_SCALE, ACCENT_PRIMARY,
-    style_chart, executive_card, executive_metric,
+    RISK_COLORS, style_chart, executive_card, executive_metric,
     humanize_feature_name, shorten_user_label,
 )
 from apps.dashboard.data_loaders import (
@@ -22,6 +22,9 @@ from apps.dashboard.data_loaders import (
     build_latest_interaction_scores,
     build_response_sentiment_timeline,
     build_representative_statements,
+    load_gru_mood_swing_summary,
+    load_gru_mood_training_report,
+    run_gru_mood_training_action,
 )
 
 

@@ -152,7 +152,9 @@ def render(refresh_nonce: str) -> None:
             "tool_action": "Tool Action",
             "mentions": "Mentions",
             "avg_polarity": "Avg Polarity",
-            "neg_ratio": "Negative Ratio"
+            "neg_ratio": "Negative Ratio",
+            "positive_sample": "Positive Example",
+            "negative_sample": "Negative Example"
         }, inplace=True)
         tool_view["Avg Polarity"] = tool_view["Avg Polarity"].map(lambda v: f"{v:.3f}")
         tool_view["Negative Ratio"] = tool_view["Negative Ratio"].map(lambda v: f"{v:.1%}")

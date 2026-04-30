@@ -1337,12 +1337,14 @@ def build_tool_usage_signals(sentiment_df: pd.DataFrame) -> pd.DataFrame:
     
     if not sentiment_df.empty:
         for _, row in sentiment_df.iterrows():
-            msg = str(row.get("message", "")).lower()
+            msg_raw = str(row.get("message", ""))
+            msg = msg_raw.lower()
             if not msg:
                 continue
                 
             pol = float(row.get("sentiment_score", row.get("polarity", 0.0)))
-            is_neg = pol < 0
+            # Align with lib/sentiment_utils.py threshold
+            is_neg = pol < -0.15
             
             for category, actions in HUMANOID_TOOL_PATTERNS.items():
                 for action_name, patterns in actions.items():
@@ -1351,7 +1353,8 @@ def build_tool_usage_signals(sentiment_df: pd.DataFrame) -> pd.DataFrame:
                             "category": category,
                             "tool_action": action_name,
                             "polarity": pol,
-                            "is_negative": is_neg
+                            "is_negative": is_neg,
+                            "sample_text": msg_raw
                         })
 
     req = pd.DataFrame(rows)
@@ -1368,19 +1371,38 @@ def build_tool_usage_signals(sentiment_df: pd.DataFrame) -> pd.DataFrame:
         base_df["mentions"] = 0
         base_df["avg_polarity"] = 0.0
         base_df["neg_ratio"] = 0.0
+        base_df["positive_sample"] = ""
+        base_df["negative_sample"] = ""
         return base_df.sort_values(["category", "tool_action"])
         
+    def get_pos_sample(group):
+        if group.empty: return ""
+        return group.loc[group["polarity"].idxmax()]["sample_text"]
+
+    def get_neg_sample(group):
+        if group.empty: return ""
+        return group.loc[group["polarity"].idxmin()]["sample_text"]
+
     out = req.groupby(["category", "tool_action"], as_index=False).agg(
         mentions=("tool_action", "size"),
         avg_polarity=("polarity", "mean"),
-        neg_ratio=("is_negative", "mean")
+        neg_ratio=("is_negative", "mean"),
     )
+    
+    # Manually add samples because idxmax/idxmin can't be easily put in agg() directly with other things
+    pos_samples = req.groupby(["category", "tool_action"]).apply(get_pos_sample).reset_index(name="positive_sample")
+    neg_samples = req.groupby(["category", "tool_action"]).apply(get_neg_sample).reset_index(name="negative_sample")
+    
+    out = out.merge(pos_samples, on=["category", "tool_action"], how="left")
+    out = out.merge(neg_samples, on=["category", "tool_action"], how="left")
     
     # Merge with base_df to ensure 0-mention tools are included
     out = base_df.merge(out, on=["category", "tool_action"], how="left")
     out["mentions"] = out["mentions"].fillna(0).astype(int)
     out["avg_polarity"] = out["avg_polarity"].fillna(0.0)
     out["neg_ratio"] = out["neg_ratio"].fillna(0.0)
+    out["positive_sample"] = out["positive_sample"].fillna("")
+    out["negative_sample"] = out["negative_sample"].fillna("")
     
     return out.sort_values(["category", "mentions"], ascending=[True, False])
 
