@@ -1,129 +1,129 @@
 feature,label,anchor_feature,anchor_feature_label,abs_correlation
-emb_0,emb_0 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9734894187599036
-emb_1,emb_1 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8917879856192065
-emb_10,emb_10 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.841548669696417
-emb_100,emb_100 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737903510681628
-emb_101,emb_101 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.7915457198985122
-emb_102,emb_102 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8721463665283389
-emb_103,emb_103 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737455852149973
-emb_104,emb_104 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9214655393132454
-emb_105,emb_105 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8550439799223487
-emb_106,emb_106 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738051385312123
-emb_107,emb_107 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8750458438538946
-emb_108,emb_108 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9766982332910844
-emb_109,emb_109 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.3317063875147441
-emb_11,emb_11 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737951365935044
-emb_110,emb_110 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8781086768732747
-emb_111,emb_111 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8854909262461292
-emb_112,emb_112 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738527188000438
-emb_113,emb_113 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9787880205962479
-emb_114,emb_114 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737857528821104
-emb_115,emb_115 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.903212566901587
-emb_116,emb_116 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9735479272879229
-emb_117,emb_117 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736934302579172
-emb_118,emb_118 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739487392044481
-emb_119,emb_119 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9423472927186375
-emb_12,emb_12 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9734687749570781
-emb_120,emb_120 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.869128913206702
-emb_121,emb_121 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9415968720462518
-emb_122,emb_122 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739487632685517
-emb_123,emb_123 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.88385761487992
-emb_124,emb_124 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736552411823141
-emb_125,emb_125 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9735911971447346
-emb_126,emb_126 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8643203874644525
-emb_127,emb_127 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9505523193834198
-emb_13,emb_13 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.784559957931259
-emb_14,emb_14 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738352022566459
-emb_15,emb_15 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736267628869987
-emb_16,emb_16 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738105773355328
-emb_17,emb_17 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8647898121747283
-emb_18,emb_18 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737412146347316
-emb_19,emb_19 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8688303180324937
-emb_2,emb_2 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.30459983261313306
-emb_20,emb_20 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8816494309619503
-emb_21,emb_21 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9734143381459579
-emb_22,emb_22 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739143962025407
-emb_23,emb_23 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8632186939428141
-emb_24,emb_24 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8515403730006804
-emb_25,emb_25 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737687466382713
-emb_26,emb_26 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736688562879929
-emb_27,emb_27 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738337151898331
-emb_28,emb_28 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8851651135387955
-emb_29,emb_29 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9070051272771593
-emb_3,emb_3 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.41798785751234335
-emb_30,emb_30 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.863448826582221
-emb_31,emb_31 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8257972020587029
-emb_32,emb_32 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.27747469987831674
-emb_33,emb_33 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.926793642147499
-emb_34,emb_34 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8809204769789154
-emb_35,emb_35 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9247853532760192
-emb_36,emb_36 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9496347833676198
-emb_37,emb_37 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737198892914605
-emb_38,emb_38 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8576734789924375
-emb_39,emb_39 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9733781081287662
-emb_4,emb_4 - Status,status_,Status,0.244701831227242
-emb_40,emb_40 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8502820848376555
-emb_41,emb_41 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9257208089547648
-emb_42,emb_42 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8535523979318064
-emb_43,emb_43 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8774735828607165
-emb_44,emb_44 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9750858284344689
-emb_45,emb_45 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8589141644215778
-emb_46,emb_46 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.973719306112427
-emb_47,emb_47 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.7094047758295317
-emb_48,emb_48 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9506577198806337
-emb_49,emb_49 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9466764934408426
-emb_5,emb_5 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7955567902570558
-emb_50,emb_50 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8808307425334712
-emb_51,emb_51 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9199485346964545
-emb_52,emb_52 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9734302887749008
-emb_53,emb_53 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8379519499624402
-emb_54,emb_54 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736448404467374
-emb_55,emb_55 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738471878685055
-emb_56,emb_56 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9735288394312209
-emb_57,emb_57 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738075496879751
-emb_58,emb_58 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.7073626150569299
-emb_59,emb_59 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8701026748335551
-emb_6,emb_6 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8849755377218749
-emb_60,emb_60 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8854236659845698
-emb_61,emb_61 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737313851398489
-emb_62,emb_62 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739999885141919
-emb_63,emb_63 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.5829554616856082
-emb_64,emb_64 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737773248998297
-emb_65,emb_65 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8495273554460718
-emb_66,emb_66 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.35371808781868785
-emb_67,emb_67 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8857366708142372
-emb_68,emb_68 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.833503823923591
-emb_69,emb_69 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.842221743531874
-emb_7,emb_7 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736138822949779
-emb_70,emb_70 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9735259966612728
-emb_71,emb_71 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738181690485228
-emb_72,emb_72 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8807008091056858
-emb_73,emb_73 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737857840794587
-emb_74,emb_74 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8155664162647526
-emb_75,emb_75 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9736857468227091
-emb_76,emb_76 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8842493397856069
-emb_77,emb_77 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8764105480885238
-emb_78,emb_78 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9275187976486154
-emb_79,emb_79 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738695103501737
-emb_8,emb_8 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737317774020477
-emb_80,emb_80 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9390306161224771
-emb_81,emb_81 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8367354996923291
-emb_82,emb_82 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9740287656045638
-emb_83,emb_83 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739007707889072
-emb_84,emb_84 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9739265625878801
-emb_85,emb_85 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9556102873170171
-emb_86,emb_86 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.8755026591663028
-emb_87,emb_87 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738254288028881
-emb_88,emb_88 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737553825857376
-emb_89,emb_89 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8637889713063817
-emb_9,emb_9 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9738228048047884
-emb_90,emb_90 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9638596318050561
-emb_91,emb_91 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8333484528476737
-emb_92,emb_92 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737998599482885
-emb_93,emb_93 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737579866650204
-emb_94,emb_94 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9746093881165842
-emb_95,emb_95 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737781333250106
-emb_96,emb_96 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8878983864280581
-emb_97,emb_97 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.973538777629241
-emb_98,emb_98 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8971957930035918
-emb_99,emb_99 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9737665418991392
+emb_0,emb_0 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9498475757595567
+emb_1,emb_1 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8294237265487618
+emb_10,emb_10 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7856768848902774
+emb_100,emb_100 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9379407912120024
+emb_101,emb_101 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9117030168922836
+emb_102,emb_102 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9350598917602544
+emb_103,emb_103 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9282884673338473
+emb_104,emb_104 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9452024326249855
+emb_105,emb_105 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8080282901263415
+emb_106,emb_106 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8352288423157332
+emb_107,emb_107 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.96503331360756
+emb_108,emb_108 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9442448987651241
+emb_109,emb_109 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9344517106220595
+emb_11,emb_11 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9142774705482265
+emb_110,emb_110 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9251921452491719
+emb_111,emb_111 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8669531020116406
+emb_112,emb_112 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9470649038275948
+emb_113,emb_113 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9158925812244381
+emb_114,emb_114 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9058144208988747
+emb_115,emb_115 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9501609734958532
+emb_116,emb_116 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9293940136686007
+emb_117,emb_117 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9249375409630921
+emb_118,emb_118 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9400984641071358
+emb_119,emb_119 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9233130994183918
+emb_12,emb_12 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.918020696552345
+emb_120,emb_120 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9294868231797008
+emb_121,emb_121 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9252802185312571
+emb_122,emb_122 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9477234382716354
+emb_123,emb_123 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9077659831246323
+emb_124,emb_124 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9468154014054695
+emb_125,emb_125 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.925906589882675
+emb_126,emb_126 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9262516789722319
+emb_127,emb_127 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9208600996427935
+emb_13,emb_13 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.934168294665067
+emb_14,emb_14 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9274611419199048
+emb_15,emb_15 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9219671499022218
+emb_16,emb_16 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9213311356022476
+emb_17,emb_17 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9313997341641138
+emb_18,emb_18 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9558200089574186
+emb_19,emb_19 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9260063241819758
+emb_2,emb_2 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9178936778168344
+emb_20,emb_20 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7502529276824212
+emb_21,emb_21 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9578690253103055
+emb_22,emb_22 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9379470343407019
+emb_23,emb_23 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.935741281354343
+emb_24,emb_24 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9332136633157152
+emb_25,emb_25 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8980883539933275
+emb_26,emb_26 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8599045572111108
+emb_27,emb_27 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9623444608912668
+emb_28,emb_28 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9258105434331677
+emb_29,emb_29 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9620593614792208
+emb_3,emb_3 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.924924878706098
+emb_30,emb_30 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9105479568972579
+emb_31,emb_31 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9184972576061746
+emb_32,emb_32 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9651023598173921
+emb_33,emb_33 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9296517138814765
+emb_34,emb_34 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8061957090824284
+emb_35,emb_35 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.946452670096478
+emb_36,emb_36 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9252083596518605
+emb_37,emb_37 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.915290164551045
+emb_38,emb_38 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.911384583605867
+emb_39,emb_39 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8504376225657091
+emb_4,emb_4 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9278208146781629
+emb_40,emb_40 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9281169244169166
+emb_41,emb_41 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.814408248521344
+emb_42,emb_42 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8745523969556753
+emb_43,emb_43 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8055884322856912
+emb_44,emb_44 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9004271294073639
+emb_45,emb_45 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.918996915954509
+emb_46,emb_46 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.7938288051595589
+emb_47,emb_47 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9263961353004145
+emb_48,emb_48 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9359109556503326
+emb_49,emb_49 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9274375704611737
+emb_5,emb_5 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9019377474686597
+emb_50,emb_50 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9221056661232744
+emb_51,emb_51 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9126516930162312
+emb_52,emb_52 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9318868151917036
+emb_53,emb_53 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.945215214311477
+emb_54,emb_54 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9220526324718683
+emb_55,emb_55 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8905275057654837
+emb_56,emb_56 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8717975641333451
+emb_57,emb_57 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9206751951451307
+emb_58,emb_58 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9353637369782535
+emb_59,emb_59 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.94165628762907
+emb_6,emb_6 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9030346768151778
+emb_60,emb_60 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.6312956448560212
+emb_61,emb_61 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9160166733665275
+emb_62,emb_62 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.985244134745191
+emb_63,emb_63 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.926623034934653
+emb_64,emb_64 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9589858463974892
+emb_65,emb_65 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.875957983563342
+emb_66,emb_66 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9267425553239884
+emb_67,emb_67 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9218396519407221
+emb_68,emb_68 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9195947453074397
+emb_69,emb_69 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8540796735412746
+emb_7,emb_7 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9410968716024578
+emb_70,emb_70 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8899986052815873
+emb_71,emb_71 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8813904609298132
+emb_72,emb_72 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9675954265357016
+emb_73,emb_73 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9360722877295888
+emb_74,emb_74 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9609981753597105
+emb_75,emb_75 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9272195516552698
+emb_76,emb_76 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9266172122637282
+emb_77,emb_77 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.900997495650812
+emb_78,emb_78 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9258057334348228
+emb_79,emb_79 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9126740259271199
+emb_8,emb_8 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8483968920216635
+emb_80,emb_80 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.8479412404635043
+emb_81,emb_81 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9493022160817863
+emb_82,emb_82 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.91688406977124
+emb_83,emb_83 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9159049079492464
+emb_84,emb_84 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9321830877295647
+emb_85,emb_85 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9122501962877505
+emb_86,emb_86 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9410197576224036
+emb_87,emb_87 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9345783518276234
+emb_88,emb_88 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9278390295818539
+emb_89,emb_89 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9165356251467215
+emb_9,emb_9 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9305688026127655
+emb_90,emb_90 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9256114109026442
+emb_91,emb_91 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9235594364764674
+emb_92,emb_92 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9300583093409116
+emb_93,emb_93 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9147904364482633
+emb_94,emb_94 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.8783207881563592
+emb_95,emb_95 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.9211413137615045
+emb_96,emb_96 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9230874669963329
+emb_97,emb_97 - Msg Char Len Mean,msg_char_len_mean,Msg Char Len Mean,0.855492774126679
+emb_98,emb_98 - Transcription Ratio,transcription_ratio,Transcription Ratio,0.9079961425233201
+emb_99,emb_99 - Msg Word Len Mean,msg_word_len_mean,Msg Word Len Mean,0.9247540356596479

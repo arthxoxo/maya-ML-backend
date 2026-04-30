@@ -62,24 +62,7 @@ GREETINGS: set[str] = {
     "bye", "goodnight", "gn", "gm", "goodmorning",
 }
 
-# ── Command verbs (Neutralizer) ───────────────────────────────────────────
-# Sentences starting with these but having no other emotional terms should
-# be treated as neutral task commands, not negative sentiment.
-COMMAND_VERBS: set[str] = {
-    "delete", "remove", "cancel", "clear", "stop", "reset", "trash",
-    "discard", "undo", "erase", "omit", "exclude",
-    "update", "edit", "modify", "set", "add", "create", "show", "get", "list",
-    "check", "test", "verify", "run", "execute", "filter", "drop", "configure",
-}
-
-# ── Technical Keywords (Neutralizer) ──────────────────────────────────────
-# Technical jargon that often triggers false-negatives in base models
-# (like 'spam', 'error logs', 'config') should be treated as neutral.
-TECHNICAL_KEYWORDS: set[str] = {
-    "config", "configuration", "filter", "logs", "spam", "system", "settings",
-    "profile", "account", "data", "database", "server", "connection", "api",
-    "token", "subscription", "lead", "leads", "automation", "workflow",
-}
+# Command heuristics removed in favor of ContextSentimentGRU
 
 
 def extract_emoji_score(text: str) -> tuple[float, int]:
@@ -210,18 +193,6 @@ def blend_scores(
     has_no_emotional_words = (heur_score == 0.0 and emoji_count == 0)
     # Also catch emails, URLs, and single-word non-emotional tokens
     is_non_text = bool(re.match(r"^[\w.@+\-/:#?=&]+$", _clean))
-
-    # Content that starts with a command verb or contains technical keywords
-    # without other emotional signals should be neutral.
-    # We check the first two tokens for a command verb to catch "Let me check", "Please add", etc.
-    command_in_prefix = any(t in COMMAND_VERBS for t in tokens[:3])
-    has_tech_keywords = any(t in TECHNICAL_KEYWORDS for t in tokens)
-    
-    is_technical_command = (command_in_prefix or has_tech_keywords) and has_no_emotional_words
-
-    if (is_very_short and (is_greeting or (has_no_emotional_words and is_non_text))) or is_technical_command:
-        final = final * 0.25  # heavily dampen toward neutral
-        final = float(max(min(final, 1.0), -1.0))
 
     if final > 0.15:
         label = "positive"
