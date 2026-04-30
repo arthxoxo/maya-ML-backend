@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
@@ -83,6 +84,87 @@ STEP_CACHE_KEYS: dict[str, list[str]] = {
     ],
     "train_whatsapp_gru_mood_swings": ["gru_mood_swing_summary", "gru_mood_training_report"],
 }
+
+# ---------------------------------------------------------------------------
+# Step dependency DAG — used to cascade invalidation when upstream data
+# changes.  If a step's upstream dependency recomputed, this step must
+# recompute too even if its own outputs still exist in Redis.
+# ---------------------------------------------------------------------------
+STEP_UPSTREAM: dict[str, list[str]] = {
+    "publish_raw_csv_to_kafka": [],
+    "bulk_sentiment_preprocessing": [],
+    "feature_engineering": [],
+    "build_gnn_nodes_from_flink": ["feature_engineering"],
+    "train_user_behavior_gnn": ["build_gnn_nodes_from_flink"],
+    "train_graphsage_user_embeddings": ["build_gnn_nodes_from_flink"],
+    "train_xgb_shap_sentiment": [
+        "train_user_behavior_gnn",
+        "train_graphsage_user_embeddings",
+        "bulk_sentiment_preprocessing",
+    ],
+    "build_user_personas": [
+        "train_user_behavior_gnn",
+        "train_graphsage_user_embeddings",
+    ],
+    "train_whatsapp_gru_mood_swings": ["build_gnn_nodes_from_flink"],
+    "monitor_pipeline_drift": [],
+    "publish_dashboard_data_to_redis": [],
+}
+
+# Raw CSV source files whose changes should invalidate the entire pipeline
+# cache.  Uses file size + mtime to detect ingestion of new data.
+_SOURCE_CSV_NAMES: list[str] = [
+    "maya_users.csv",
+    "maya_sessions.csv",
+    "maya_whatsapp_messages.csv",
+]
+
+
+def _compute_source_fingerprint() -> str:
+    """Hash raw source-file sizes.
+
+    Returns a short hex digest that changes whenever the raw CSV file sizes
+    change (e.g. new users ingested). Supports both ``maya_*.csv`` and
+    ``*.csv`` naming conventions.
+    """
+    repo_root = Path(__file__).resolve().parent
+    secret_dir = repo_root / "secret_data"
+    parts: list[str] = []
+    for name in sorted(_SOURCE_CSV_NAMES):
+        primary = secret_dir / name
+        alt = secret_dir / name.replace("maya_", "")
+        target = primary if primary.exists() else (alt if alt.exists() else None)
+        if target is not None:
+            stat = target.stat()
+            parts.append(f"{target.name}:{stat.st_size}")
+        else:
+            parts.append(f"{name}:missing")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
+def _source_data_changed(redis_client) -> bool:
+    """Return True when raw CSV source files differ from the last pipeline run."""
+    if redis_client is None:
+        return True
+    current_fp = _compute_source_fingerprint()
+    try:
+        stored_fp = redis_client.get(_redis_key("cache_source_fingerprint")) or ""
+    except Exception:
+        return True
+    return current_fp != stored_fp
+
+
+def _store_source_fingerprint(redis_client) -> None:
+    """Persist the current source fingerprint to Redis after a successful run."""
+    if redis_client is None:
+        return
+    try:
+        redis_client.set(
+            _redis_key("cache_source_fingerprint"),
+            _compute_source_fingerprint(),
+        )
+    except Exception:
+        pass
 
 
 def _step_cached_in_redis(step_id: str, redis_client) -> bool:
@@ -255,6 +337,19 @@ def run(steps: list[Step], dry_run: bool = False, use_cache: bool = False, force
     if use_cache and not cache_available:
         print("[WARN] --use-cache enabled but Redis cache is unavailable. Running all steps normally.")
 
+    # --- Source-data fingerprint check ------------------------------------
+    # If the raw CSV files changed since the last run, the entire cache is
+    # stale and every step must recompute.
+    source_changed = False
+    if use_cache and cache_available and not force_recompute:
+        source_changed = _source_data_changed(redis_client)
+        if source_changed:
+            print("[CACHE] Source data fingerprint changed — all cached steps will be recomputed.")
+
+    # Track which steps actually executed (vs. cache-skipped) so we can
+    # cascade invalidation to their downstream dependents.
+    recomputed_steps: set[str] = set()
+
     for i, step in enumerate(steps, start=1):
         cmd_str = " ".join(step.cmd)
         print(f"\n[{i}/{total}] {step.id}")
@@ -263,18 +358,42 @@ def run(steps: list[Step], dry_run: bool = False, use_cache: bool = False, force
         if dry_run:
             continue
 
-        if use_cache and cache_available and not force_recompute and _step_cached_in_redis(step.id, redis_client):
-            print(f"[SKIP] {step.id} (cache hit in Redis)")
+        # Determine whether we can use the cached output for this step.
+        can_use_cache = (
+            use_cache
+            and cache_available
+            and not force_recompute
+            and not source_changed
+        )
+
+        # DAG cascade: if any upstream dependency recomputed, this step
+        # must recompute too — its inputs are no longer consistent with
+        # the cached outputs.
+        if can_use_cache:
+            upstream_deps = STEP_UPSTREAM.get(step.id, [])
+            if any(dep in recomputed_steps for dep in upstream_deps):
+                can_use_cache = False
+                print(f"  [CACHE] Upstream dependency recomputed — forcing recompute.")
+
+        if can_use_cache and _step_cached_in_redis(step.id, redis_client):
+            print(f"  [SKIP] {step.id} (cache hit in Redis)")
             continue
 
         res = subprocess.run(step.cmd, cwd=Path(__file__).resolve().parent)
         if res.returncode != 0:
             if step.optional:
                 print(f"\n[WARN] Optional step '{step.id}' exited with code {res.returncode}; continuing.")
+                recomputed_steps.add(step.id)
                 continue
             print(f"\n[FAIL] Step '{step.id}' exited with code {res.returncode}")
             return int(res.returncode)
-        print(f"[OK] {step.id}")
+        print(f"  [OK] {step.id}")
+        recomputed_steps.add(step.id)
+
+    # Persist the source fingerprint so the next run can detect changes.
+    if cache_available and not dry_run:
+        _store_source_fingerprint(redis_client)
+
     return 0
 
 
