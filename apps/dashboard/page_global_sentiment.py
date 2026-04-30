@@ -12,7 +12,7 @@ import streamlit as st
 
 from apps.dashboard.shared import (
     SENTIMENT_COLORS, SENTIMENT_DIVERGING_SCALE, ACCENT_PRIMARY, RISK_COLORS,
-    style_chart, executive_card,
+    style_chart, executive_card, executive_metric,
 )
 from apps.dashboard.data_loaders import (
     load_user_directory,

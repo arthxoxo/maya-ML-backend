@@ -204,6 +204,68 @@ CANONICAL_INTENT_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     ],
 }
 
+HUMANOID_TOOL_PATTERNS: dict[str, dict[str, list[re.Pattern[str]]]] = {
+    "Calendar": {
+        "Create Event": [re.compile(r"\b(create|add|new|schedule|set up)\b.*\b(event|calendar|appointment|meeting)\b")],
+        "Get/List Events": [re.compile(r"\b(get|list|show|view|find)\b.*\b(event|events|calendar|appointments|meetings)\b")],
+        "Update Event": [re.compile(r"\b(update|change|edit|modify|reschedule)\b.*\b(event|calendar|appointment|meeting)\b")],
+        "Delete Event": [re.compile(r"\b(delete|remove|cancel)\b.*\b(event|calendar|appointment|meeting)\b")],
+        "Get Google Calendars": [re.compile(r"\b(get|list|show|view)\b.*\b(google calendar|calendars)\b")],
+    },
+    "Reminders": {
+        "Create Reminder": [re.compile(r"\b(create|add|set|new)\b.*\b(reminder|remind)\b")],
+        "Get/List Reminders": [re.compile(r"\b(get|list|show|view|find)\b.*\b(reminder|reminders)\b")],
+        "Update Reminder": [re.compile(r"\b(update|change|edit|modify)\b.*\b(reminder|reminders)\b")],
+        "Delete Reminder": [re.compile(r"\b(delete|remove|cancel)\b.*\b(reminder)\b")],
+        "Batch Delete Reminders": [re.compile(r"\b(delete|remove|clear|cancel)\b.*\b(all|multiple)\b.*\b(reminders)\b")],
+    },
+    "Todos": {
+        "Create Todo": [re.compile(r"\b(create|add|new)\b.*\b(todo|to-do|task)\b")],
+        "Get/List Todos": [re.compile(r"\b(get|list|show|view|find)\b.*\b(todos|to-dos|tasks)\b")],
+        "Update Todo": [re.compile(r"\b(update|change|edit|modify)\b.*\b(todo|to-do|task)\b")],
+        "Delete Todo": [re.compile(r"\b(delete|remove|cancel)\b.*\b(todo|to-do|task)\b")],
+        "Batch Create Todos": [re.compile(r"\b(create|add|new)\b.*\b(multiple|batch)\b.*\b(todos|to-dos|tasks)\b")],
+        "Batch Delete Todos": [re.compile(r"\b(delete|remove|clear)\b.*\b(all|multiple)\b.*\b(todos|to-dos|tasks)\b")],
+    },
+    "Notes": {
+        "Create Note": [re.compile(r"\b(create|add|new|write|take)\b.*\b(note|journal|idea|meeting note)\b")],
+        "List Notes": [re.compile(r"\b(list|show|view|get|find)\b.*\b(notes|journals|ideas)\b")],
+        "Update Note": [re.compile(r"\b(update|change|edit|modify)\b.*\b(note|journal|idea)\b")],
+        "Delete Note": [re.compile(r"\b(delete|remove|clear)\b.*\b(note|journal|idea)\b")],
+        "Append to Note": [re.compile(r"\b(append|add to|extend)\b.*\b(note|journal|idea)\b")],
+    },
+    "Lists": {
+        "Create List": [re.compile(r"\b(create|add|new|make)\b.*\b(list|checklist|shopping list|packing list)\b")],
+        "Get/List Lists": [re.compile(r"\b(get|list|show|view|find)\b.*\b(lists|checklists)\b")],
+        "Update List": [re.compile(r"\b(update|change|edit|modify)\b.*\b(list|checklist)\b")],
+        "Delete List": [re.compile(r"\b(delete|remove|clear)\b.*\b(list|checklist)\b")],
+        "Add List Item": [re.compile(r"\b(add|put|insert)\b.*\b(item|thing)\b.*\b(list|checklist)\b")],
+        "Update List Item": [re.compile(r"\b(update|change|edit|modify)\b.*\b(item|thing)\b.*\b(list|checklist)\b")],
+        "Delete List Item": [re.compile(r"\b(delete|remove|clear)\b.*\b(item|thing)\b.*\b(list|checklist)\b")],
+    },
+    "Contacts + WhatsApp": {
+        "Search Contacts": [re.compile(r"\b(search|find|look up)\b.*\b(contact|contacts|person)\b")],
+        "Add/Update Contact": [re.compile(r"\b(add|create|new|update|edit)\b.*\b(contact|person|number)\b")],
+        "Send Friend Request": [re.compile(r"\b(send|add)\b.*\b(friend request|invite)\b")],
+        "Send WhatsApp Message": [re.compile(r"\b(send|message|text|draft)\b.*\b(whatsapp|wa)\b")],
+    },
+    "Internet": {
+        "Simple Search": [re.compile(r"\b(search|look up|google|find out|what is|how to)\b")],
+        "Deep Search": [re.compile(r"\b(deep search|research|investigate|in depth|detailed research)\b")],
+    },
+    "Account": {
+        "Update User Profile": [re.compile(r"\b(update|change|edit|modify)\b.*\b(profile|account|settings|bio|username)\b")],
+    },
+    "Subscription": {
+        "Get Subscription Status": [re.compile(r"\b(get|show|view|check|status)\b.*\b(subscription|plan|billing|premium)\b")],
+    },
+    "Feedback + Memory": {
+        "Create Feedback": [re.compile(r"\b(create|add|give|submit|report)\b.*\b(feedback|bug|issue|idea|request)\b")],
+        "Save Memory": [re.compile(r"\b(save|store|remember|keep)\b.*\b(memory|this|fact|detail)\b")],
+        "Search Memory": [re.compile(r"\b(search|find|recall|what did i|do i have)\b.*\b(memory|memories|past)\b")],
+    },
+}
+
 FEATURE_FOCUS_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "Reminders": [
         re.compile(r"\bremind(?:er| me)?\b"),

@@ -37,18 +37,11 @@ from apps.dashboard.shared import (
     REDIS_KEY_PREFIX, GEO_NOISE_PATTERN,
     SENTIMENT_COLORS, ACCENT_PRIMARY, PERSONA_COLORS, RISK_COLORS,
     STOPWORDS, FILLER_WORDS, ACTION_VERBS,
-    TASK_PATTERNS, CANONICAL_INTENT_PATTERNS, FEATURE_FOCUS_PATTERNS,
+    TASK_PATTERNS, CANONICAL_INTENT_PATTERNS, FEATURE_FOCUS_PATTERNS, HUMANOID_TOOL_PATTERNS,
     _first_existing_path, get_redis_client, _empty_df, load_df_from_redis,
     heuristic_sentiment_fallback,
     humanize_feature_name, simplify_persona_label, shorten_user_label,
     remove_geographic_noise, remove_non_actionable_feature_noise,
-    _normalize_model_label, _sigmoid, _title_from_identifier,
-    prettify_embedding_feature_name, clean_embedding_display_label,
-    file_updated_caption, human_signal_name, human_signal_explainer,
-    polarity_label, _derive_city_state,
-    tokenize_message, normalize_task_phrase, extract_task_candidates,
-    infer_canonical_intents, _map_request_to_feature_focus,
-    _scale_0_1,
 )
 
 @st.cache_data(show_spinner=False)
@@ -1336,6 +1329,60 @@ def build_feature_focus_summary(sentiment_df: pd.DataFrame, top_k: int = 10) -> 
     out = grouped.merge(top_examples, on="feature_focus", how="left")
     out = out.sort_values(["mentions", "share"], ascending=False).head(top_k)
     return out[["feature_focus", "mentions", "share", "avg_polarity", "sample_requests"]]
+
+
+def build_tool_usage_signals(sentiment_df: pd.DataFrame) -> pd.DataFrame:
+    # Pre-populate all categories and actions so they always appear in the dashboard
+    rows: list[dict[str, object]] = []
+    
+    if not sentiment_df.empty:
+        for _, row in sentiment_df.iterrows():
+            msg = str(row.get("message", "")).lower()
+            if not msg:
+                continue
+                
+            pol = float(row.get("sentiment_score", row.get("polarity", 0.0)))
+            is_neg = pol < 0
+            
+            for category, actions in HUMANOID_TOOL_PATTERNS.items():
+                for action_name, patterns in actions.items():
+                    if any(p.search(msg) for p in patterns):
+                        rows.append({
+                            "category": category,
+                            "tool_action": action_name,
+                            "polarity": pol,
+                            "is_negative": is_neg
+                        })
+
+    req = pd.DataFrame(rows)
+    
+    # We want to ensure EVERY tool from the configuration is present, even with 0 mentions
+    all_tools = []
+    for category, actions in HUMANOID_TOOL_PATTERNS.items():
+        for action_name in actions.keys():
+            all_tools.append({"category": category, "tool_action": action_name})
+    base_df = pd.DataFrame(all_tools)
+    
+    if req.empty:
+        # No matches found, so everything is 0
+        base_df["mentions"] = 0
+        base_df["avg_polarity"] = 0.0
+        base_df["neg_ratio"] = 0.0
+        return base_df.sort_values(["category", "tool_action"])
+        
+    out = req.groupby(["category", "tool_action"], as_index=False).agg(
+        mentions=("tool_action", "size"),
+        avg_polarity=("polarity", "mean"),
+        neg_ratio=("is_negative", "mean")
+    )
+    
+    # Merge with base_df to ensure 0-mention tools are included
+    out = base_df.merge(out, on=["category", "tool_action"], how="left")
+    out["mentions"] = out["mentions"].fillna(0).astype(int)
+    out["avg_polarity"] = out["avg_polarity"].fillna(0.0)
+    out["neg_ratio"] = out["neg_ratio"].fillna(0.0)
+    
+    return out.sort_values(["category", "mentions"], ascending=[True, False])
 
 
 def _scale_0_1(s: pd.Series) -> pd.Series:

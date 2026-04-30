@@ -22,7 +22,7 @@ from apps.dashboard.data_loaders import (
 
 def render(scores: pd.DataFrame, sentiment_df: pd.DataFrame) -> None:
     """Render the Global Insights page."""
-    if page == "Global Insights":
+    if True:
         global_tasks = build_task_importance(sentiment_df, user_id=None, top_k=20).fillna(0)
         global_feature_focus = build_feature_focus_summary(sentiment_df, top_k=12).fillna(0)
         if "sample_requests" in global_feature_focus.columns:

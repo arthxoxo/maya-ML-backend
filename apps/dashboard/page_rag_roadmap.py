@@ -12,7 +12,7 @@ import streamlit as st
 
 from apps.dashboard.shared import (
     ACCENT_PRIMARY, SENTIMENT_COLORS, RISK_COLORS,
-    style_chart,
+    style_chart, executive_metric,
 )
 from apps.dashboard.data_loaders import (
     load_sentiment_table,
@@ -20,12 +20,13 @@ from apps.dashboard.data_loaders import (
     load_xgb_user_predictions,
     compute_xgb_prediction_health,
     build_rag_roadmap_signals,
+    build_tool_usage_signals,
 )
 
 
 def render(refresh_nonce: str) -> None:
     """Render the RAG Roadmap Signals page."""
-    if page == "RAG Roadmap Signals":
+    if True:
         sentiment_df = load_sentiment_table(refresh_nonce)
         roadmap = build_rag_roadmap_signals(sentiment_df, recent_days=30, top_k=14)
         st.subheader("RAG Roadmap Signals")
@@ -107,6 +108,58 @@ def render(refresh_nonce: str) -> None:
             roadmap_view["trend_pct"] = roadmap_view["trend_pct"].map(lambda v: f"{v:+.0%}")
             roadmap_view["avg_polarity"] = roadmap_view["avg_polarity"].map(lambda v: f"{v:.3f}")
             st.dataframe(roadmap_view, width="stretch", height=390)
+
+        st.divider()
+
+        # Humanoid Bot Tool Usage Section
+        st.markdown("### Humanoid Bot Tool Usage")
+        st.caption("Tracking specific tool mentions (Calendar, Reminders, Notes, etc.) from user requests.")
+        
+        tool_signals = build_tool_usage_signals(sentiment_df)
+        total_m = tool_signals["mentions"].sum()
+        
+        if total_m == 0:
+            st.info("No explicit tool usage detected in recent messages yet. The data table below will populate once usage occurs.")
+        else:
+            cat_summary = tool_signals.groupby("category", as_index=False).agg(
+                total_mentions=("mentions", "sum")
+            ).sort_values("total_mentions", ascending=False)
+            
+            t1, t2 = st.columns(2)
+            with t1:
+                top_cat = cat_summary.iloc[0]["category"] if not cat_summary.empty else "N/A"
+                st.metric("Most Requested Toolset", top_cat)
+            with t2:
+                least_cat = cat_summary.iloc[-1]["category"] if not cat_summary.empty else "N/A"
+                st.metric("Least Requested Toolset", least_cat)
+
+            fig_tools = px.treemap(
+                tool_signals[tool_signals["mentions"] > 0],
+                path=["category", "tool_action"],
+                values="mentions",
+                color="avg_polarity",
+                color_continuous_scale=[[0.0, "#b2413e"], [0.5, "#d8ead9"], [1.0, "#2e8b57"]],
+                color_continuous_midpoint=0.0,
+                title="Tool Mentions Heatmap (Size = Volume, Color = Sentiment)"
+            )
+            fig_tools.update_layout(margin=dict(t=50, l=10, r=10, b=10), paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_tools, use_container_width=True)
+
+        st.markdown("#### Detailed Tool Breakdown")
+        tool_view = tool_signals.copy()
+        tool_view.rename(columns={
+            "category": "Category",
+            "tool_action": "Tool Action",
+            "mentions": "Mentions",
+            "avg_polarity": "Avg Polarity",
+            "neg_ratio": "Negative Ratio"
+        }, inplace=True)
+        tool_view["Avg Polarity"] = tool_view["Avg Polarity"].map(lambda v: f"{v:.3f}")
+        tool_view["Negative Ratio"] = tool_view["Negative Ratio"].map(lambda v: f"{v:.1%}")
+        
+        st.dataframe(tool_view, width="stretch", height=300)
+
+        st.divider()
 
         pred_summary = load_xgb_user_predictions()
         if not pred_summary.empty:
