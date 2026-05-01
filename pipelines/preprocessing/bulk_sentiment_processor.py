@@ -164,15 +164,13 @@ def main():
                     _model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
                     print("Using base CardiffNLP RoBERTa model (no fine-tuned model found)")
 
-                else:
-                    print("Falling back to base RoBERTa scores.")
-                    pipe = pipeline(
-                        "sentiment-analysis",
-                        model=_model_id,
-                        tokenizer=_model_id,
-                        device=device,
-                        top_k=None,  # return full softmax distribution
-                    )
+                pipe = pipeline(
+                    "sentiment-analysis",
+                    model=_model_id,
+                    tokenizer=_model_id,
+                    device=device,
+                    top_k=None,  # return full softmax distribution
+                )
                 pipeline_initialized = True
 
             batch_size = 32
@@ -185,21 +183,20 @@ def main():
             start_time = time.time()
             desc = f"Sentiment ({input_file})"
             
-            if True: # Always use base pipeline now
-                for i in tqdm(range(0, len(texts), batch_size), desc=desc, unit="batch"):
-                    batch = [t[:512] for t in texts[i : i + batch_size]]
-                    batch_raw = raw_texts[i : i + batch_size]
-                    out = pipe(batch, truncation=True, max_length=256)
-                    for j, result_list in enumerate(out):
-                        # result_list is a list of dicts [{label, score}, ...] for all 3 classes
-                        model_score, model_conf, _ = _softmax_to_score(result_list)
-                        raw_text = batch_raw[j] if j < len(batch_raw) else ""
-                        final_score, final_conf, final_label = _blend_scores(
-                            model_score, model_conf, raw_text,
-                        )
-                        scores.append(final_score)
-                        confs.append(final_conf)
-                        labels.append(final_label)
+            for i in tqdm(range(0, len(texts), batch_size), desc=desc, unit="batch"):
+                batch = [t[:512] for t in texts[i : i + batch_size]]
+                batch_raw = raw_texts[i : i + batch_size]
+                out = pipe(batch, truncation=True, max_length=256)
+                for j, result_list in enumerate(out):
+                    # result_list is a list of dicts [{label, score}, ...] for all 3 classes
+                    model_score, model_conf, _ = _softmax_to_score(result_list)
+                    raw_text = batch_raw[j] if j < len(batch_raw) else ""
+                    final_score, final_conf, final_label = _blend_scores(
+                        model_score, model_conf, raw_text,
+                    )
+                    scores.append(final_score)
+                    confs.append(final_conf)
+                    labels.append(final_label)
 
             print(f"Inference complete in {time.time() - start_time:.2f}s")
             df["sentiment_score"] = scores
