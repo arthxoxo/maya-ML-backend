@@ -171,10 +171,11 @@ def render(wa: pd.DataFrame, user_directory: pd.DataFrame, name_map: Dict[int, s
         st.plotly_chart(fig_mix, width="stretch")
 
     st.markdown("### User Sentiment Leaderboard")
+    MIN_LEADERBOARD_THRESHOLD = 10
     lleft, lright = st.columns(2)
     with lleft:
         st.markdown("#### Top 10 Positive Users")
-        top_pos = per_user[per_user["msg_count"] >= 3].sort_values("avg_sentiment", ascending=False).head(10).copy()
+        top_pos = per_user[per_user["msg_count"] >= MIN_LEADERBOARD_THRESHOLD].sort_values("avg_sentiment", ascending=False).head(10).copy()
         if top_pos.empty:
             st.info("No positive users found with sufficient volume.")
         else:
@@ -188,7 +189,7 @@ def render(wa: pd.DataFrame, user_directory: pd.DataFrame, name_map: Dict[int, s
 
     with lright:
         st.markdown("#### Top 10 Negative Users")
-        top_neg = per_user[per_user["msg_count"] >= 3].sort_values("avg_sentiment", ascending=True).head(10).copy()
+        top_neg = per_user[per_user["msg_count"] >= MIN_LEADERBOARD_THRESHOLD].sort_values("avg_sentiment", ascending=True).head(10).copy()
         if top_neg.empty:
             st.info("No negative users found with sufficient volume.")
         else:
