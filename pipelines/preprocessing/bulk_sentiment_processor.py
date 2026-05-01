@@ -164,24 +164,8 @@ def main():
                     _model_id = "cardiffnlp/twitter-roberta-base-sentiment-latest"
                     print("Using base CardiffNLP RoBERTa model (no fine-tuned model found)")
 
-                # Try to load ContextSentimentGRU if trained
-                gru_model_path = SENTIMENT_ARTIFACT_DIR / "context_sentiment_gru.pt"
-                use_gru = gru_model_path.exists()
-                if use_gru:
-                    print(f"Using trained ContextSentimentGRU for context-aware scoring from {gru_model_path}")
-                    import sys
-                    from pathlib import Path
-                    from transformers import AutoTokenizer, AutoModel
-                    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-                    from pipelines.training.train_sentiment_gru import ContextSentimentGRU
-                    gru_model = ContextSentimentGRU(input_dim=768, hidden_dim=128).to(device)
-                    gru_model.load_state_dict(torch.load(gru_model_path, map_location=device))
-                    gru_model.eval()
-                    tokenizer = AutoTokenizer.from_pretrained(_model_id)
-                    feature_extractor = AutoModel.from_pretrained(_model_id).to(device)
-                    feature_extractor.eval()
                 else:
-                    print("ContextSentimentGRU not found. Falling back to base RoBERTa scores.")
+                    print("Falling back to base RoBERTa scores.")
                     pipe = pipeline(
                         "sentiment-analysis",
                         model=_model_id,
@@ -201,34 +185,7 @@ def main():
             start_time = time.time()
             desc = f"Sentiment ({input_file})"
             
-            if use_gru:
-                # Extract embeddings and run through GRU (simplified sequential processing for now)
-                with torch.no_grad():
-                    for i in tqdm(range(0, len(texts), batch_size), desc=desc, unit="batch"):
-                        batch = [t[:512] for t in texts[i : i + batch_size]]
-                        inputs = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-                        outputs = feature_extractor(**inputs)
-                        cls_embeddings = outputs.last_hidden_state[:, 0, :]
-                        # Shape: (batch_size, 1, 768) - treat each message as a length-1 sequence if session history isn't cached here
-                        seq = cls_embeddings.unsqueeze(1)
-                        logits = gru_model(seq)
-                        probs = torch.softmax(logits, dim=1)
-                        
-                        for j in range(len(probs)):
-                            p = probs[j].cpu().numpy()
-                            # Mapping: Negative (0), Neutral (1), Positive (2)
-                            score = float(p[2] - p[0])
-                            conf = float(max(p))
-                            if score > 0.15: lbl = "positive"
-                            elif score < -0.15: lbl = "negative"
-                            else: lbl = "neutral"
-                            
-                            raw_text = raw_texts[i+j] if i+j < len(raw_texts) else ""
-                            final_score, final_conf, final_label = _blend_scores(score, conf, raw_text)
-                            scores.append(final_score)
-                            confs.append(final_conf)
-                            labels.append(final_label)
-            else:
+            if True: # Always use base pipeline now
                 for i in tqdm(range(0, len(texts), batch_size), desc=desc, unit="batch"):
                     batch = [t[:512] for t in texts[i : i + batch_size]]
                     batch_raw = raw_texts[i : i + batch_size]

@@ -50,8 +50,7 @@ pipeline-cached:
 pipeline-recompute:
 	PYTHONPATH=. $(MAIN_PY) run_pipeline.py --force-recompute $(FLAGS)
 
-gru-retrain:
-	PYTHONPATH=. $(MAIN_PY) -m pipelines.training.train_whatsapp_gru_mood_swings --force_retrain
+
 
 ingestor-sync:
 	@echo "[ingestor-sync] Triggering sync via $(INGESTOR_URL)/sync"

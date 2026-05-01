@@ -31,7 +31,7 @@ from apps.dashboard.shared import (
     EMBEDDING_LABELS_PATH, USER_EMBEDDINGS_PATH,
     PERSONA_TABLE_PATH, PERSONA_PROFILE_PATH, PERSONA_IMPORTANCE_PATH,
     PERSONA_USER_SHAP_PATH, PERSONA_SHAP_PLOT_PATH,
-    SENTIMENT_SCORES_PATH, GRU_MOOD_SWING_SUMMARY_PATH, GRU_MOOD_TRAINING_REPORT_PATH,
+    SENTIMENT_SCORES_PATH,
     SESSIONS_SOURCE_PATH, RAW_USERS_PATH, RAW_SESSIONS_PATH, RAW_MESSAGES_PATH,
     HF_SENTIMENT_MODEL, HF_IRONY_MODEL,
     REDIS_KEY_PREFIX, GEO_NOISE_PATTERN,
@@ -356,157 +356,7 @@ def strengthen_whatsapp_sentiment(
     return out
 
 
-def apply_gru_sequence_context(
-    df: pd.DataFrame,
-    text_col: str = "message",
-    score_col: str = "sentiment_score",
-    label_col: str = "sentiment_label",
-    group_col: str = "user_id",
-    time_col: str = "created_at",
-) -> pd.DataFrame:
-    if df.empty or group_col not in df.columns or time_col not in df.columns:
-        return df
 
-    enabled = os.getenv("MAYA_ENABLE_GRU_SENTIMENT_CONTEXT", "1").strip().lower() in {"1", "true", "yes"}
-    if not enabled:
-        return df
-
-    try:
-        import torch
-        import torch.nn as nn
-    except Exception:
-        return df
-
-    out = df.copy()
-    out[text_col] = out.get(text_col, "").fillna("").astype(str)
-    out[time_col] = pd.to_datetime(out.get(time_col), errors="coerce", utc=True)
-    out = out.sort_values([group_col, time_col], kind="mergesort").copy()
-
-    base = pd.to_numeric(out.get(score_col), errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-    heur = pd.to_numeric(out.get("heuristic_score"), errors="coerce").fillna(base).clip(-1.0, 1.0)
-    emoji_hint = out[text_col].apply(_emoji_polarity_hint)
-    intent_hint = out[text_col].apply(_intent_polarity_hint)
-    msg_len = out[text_col].str.len().fillna(0).clip(0, 400).astype(float) / 400.0
-    punct = out[text_col].str.count(r"[!?]").fillna(0).clip(0, 6).astype(float) / 6.0
-    feats = np.column_stack([
-        base.to_numpy(dtype=np.float32),
-        heur.to_numpy(dtype=np.float32),
-        pd.to_numeric(emoji_hint, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32),
-        pd.to_numeric(intent_hint, errors="coerce").fillna(0.0).to_numpy(dtype=np.float32),
-        (msg_len.to_numpy(dtype=np.float32) * 2.0 - 1.0),
-        (punct.to_numpy(dtype=np.float32) * 2.0 - 1.0),
-    ])
-
-    lookback = int(os.getenv("MAYA_GRU_LOOKBACK", "8"))
-    hidden = int(os.getenv("MAYA_GRU_HIDDEN", "24"))
-    epochs = int(os.getenv("MAYA_GRU_EPOCHS", "16"))
-
-    x_train: list[np.ndarray] = []
-    y_train: list[float] = []
-
-    def _pad_window(arr: np.ndarray) -> np.ndarray:
-        if arr.shape[0] >= lookback:
-            return arr[-lookback:, :]
-        pad = np.zeros((lookback - arr.shape[0], arr.shape[1]), dtype=np.float32)
-        return np.vstack([pad, arr]).astype(np.float32)
-
-    for _, grp in out.groupby(group_col, sort=False):
-        idx = grp.index.to_numpy()
-        if len(idx) < 2:
-            continue
-        for t in range(1, len(idx)):
-            seq = feats[idx[max(0, t - lookback):t], :]
-            x_train.append(_pad_window(seq))
-            prior_mean = float(base.loc[idx[max(0, t - lookback):t]].mean())
-            target_t = (
-                0.50 * float(base.loc[idx[t]])
-                + 0.30 * float(heur.loc[idx[t]])
-                + 0.12 * float(intent_hint.loc[idx[t]])
-                + 0.08 * float(emoji_hint.loc[idx[t]])
-                + 0.10 * prior_mean
-            )
-            y_train.append(float(np.clip(target_t, -1.0, 1.0)))
-
-    if len(x_train) < 32:
-        return out.sort_index()
-
-    x_np = np.stack(x_train).astype(np.float32)
-    y_np = np.array(y_train, dtype=np.float32).reshape(-1, 1)
-
-    torch.manual_seed(42)
-
-    class _SeqSentimentGRU(nn.Module):
-        def __init__(self, in_dim: int, hidden_dim: int):
-            super().__init__()
-            self.gru = nn.GRU(in_dim, hidden_dim, batch_first=True)
-            self.head = nn.Linear(hidden_dim, 1)
-
-        def forward(self, x):
-            _, h = self.gru(x)
-            return torch.tanh(self.head(h[-1]))
-
-    model = _SeqSentimentGRU(in_dim=x_np.shape[2], hidden_dim=hidden)
-    opt = torch.optim.Adam(model.parameters(), lr=0.01)
-    loss_fn = nn.MSELoss()
-
-    x_t = torch.from_numpy(x_np)
-    y_t = torch.from_numpy(y_np)
-
-    model.train()
-    for _ in range(max(4, epochs)):
-        opt.zero_grad()
-        pred = model(x_t)
-        loss = loss_fn(pred, y_t)
-        loss.backward()
-        opt.step()
-
-    model.eval()
-    context_pred = pd.Series(base.to_numpy(dtype=np.float32), index=out.index, dtype="float64")
-    with torch.no_grad():
-        for _, grp in out.groupby(group_col, sort=False):
-            idx = grp.index.to_numpy()
-            if len(idx) < 2:
-                continue
-            for t in range(1, len(idx)):
-                seq = feats[idx[max(0, t - lookback):t], :]
-                x_one = torch.from_numpy(_pad_window(seq)).unsqueeze(0)
-                context_pred.loc[idx[t]] = float(model(x_one).squeeze().cpu().item())
-
-    context_cap = float(os.getenv("MAYA_GRU_CONTEXT_CAP", "0.32"))
-    raw_adjust = (context_pred - base).clip(-context_cap, context_cap)
-    conf = pd.to_numeric(out.get("sentiment_confidence"), errors="coerce").fillna(0.5).clip(0.0, 1.0)
-    weight = (0.25 + 0.45 * (1.0 - conf)).clip(0.25, 0.70)
-    adj = (raw_adjust * weight).clip(-context_cap, context_cap)
-
-    updated_score = (base + adj).clip(-1.0, 1.0)
-    weak_neutral = updated_score.abs().lt(0.06) & context_pred.abs().gt(0.12)
-    updated_score = np.where(weak_neutral, 0.40 * updated_score + 0.60 * context_pred, updated_score)
-    updated_score = pd.Series(updated_score, index=out.index, dtype="float64").clip(-1.0, 1.0)
-
-    # If distribution is too compressed, expand dynamic range so sentiment does not collapse into neutral.
-    abs_q90 = float(updated_score.abs().quantile(0.90)) if len(updated_score) else 0.0
-    if abs_q90 < 0.07:
-        scale = min(4.0, 0.14 / max(abs_q90, 1e-3))
-        updated_score = (updated_score * scale).clip(-1.0, 1.0)
-    out["score_gru_context"] = pd.to_numeric(context_pred, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-    out["score_gru_adjustment"] = pd.to_numeric(adj, errors="coerce").fillna(0.0).clip(-1.0, 1.0)
-    out[score_col] = updated_score.astype(float)
-    out[label_col] = out[score_col].apply(polarity_label)
-
-    if "score_context_adjustment" in out.columns:
-        out["score_context_adjustment"] = (
-            pd.to_numeric(out["score_context_adjustment"], errors="coerce").fillna(0.0) + out["score_gru_adjustment"]
-        ).clip(-1.0, 1.0)
-
-    if "sentiment_debug_flags" in out.columns:
-        gru_flag = out["score_gru_adjustment"].abs().ge(0.02)
-        out["sentiment_debug_flags"] = np.where(
-            gru_flag,
-            out["sentiment_debug_flags"].fillna("none").astype(str).apply(lambda s: s if s == "none" else f"{s}, gru"),
-            out["sentiment_debug_flags"],
-        )
-
-    return out.sort_index()
 
 
 def _read_csv_subset(path: Path, desired_cols: list[str]) -> pd.DataFrame:
@@ -2058,8 +1908,6 @@ def load_whatsapp_sentiment_messages(refresh_nonce: str | None = None) -> pd.Dat
         "heuristic_score",
         "score_rule_hint",
         "score_context_adjustment",
-        "score_gru_context",
-        "score_gru_adjustment",
         "sentiment_threshold_used",
         "sentiment_debug_flags",
         "role",
@@ -2127,78 +1975,7 @@ def load_whatsapp_sentiment_messages(refresh_nonce: str | None = None) -> pd.Dat
     return s[cols]
 
 
-@st.cache_data(show_spinner=False)
-def load_gru_mood_swing_summary() -> pd.DataFrame:
-    expected = [
-        "user_id",
-        "messages",
-        "actual_volatility",
-        "predicted_volatility",
-        "prediction_mae",
-        "mood_swing_index",
-        "risk_flag",
-        "trend",
-        "recommendation",
-    ]
-    if GRU_MOOD_SWING_SUMMARY_PATH.exists():
-        df = pd.read_csv(GRU_MOOD_SWING_SUMMARY_PATH)
-    else:
-        df = load_df_from_redis("gru_mood_swing_summary", expected_cols=expected)
-        if df.empty:
-            return pd.DataFrame(columns=expected)
 
-    for c in ["user_id", "messages"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
-    for c in ["actual_volatility", "predicted_volatility", "prediction_mae", "mood_swing_index"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    return df
-
-
-@st.cache_data(show_spinner=False)
-def load_gru_mood_training_report() -> pd.DataFrame:
-    expected = [
-        "total_messages",
-        "eligible_users",
-        "sequence_length",
-        "hidden_size",
-        "epochs",
-        "batch_size",
-        "train_samples",
-        "val_samples",
-        "train_loss",
-        "val_mse",
-    ]
-    if GRU_MOOD_TRAINING_REPORT_PATH.exists():
-        df = pd.read_csv(GRU_MOOD_TRAINING_REPORT_PATH)
-    else:
-        df = load_df_from_redis("gru_mood_training_report", expected_cols=expected)
-        if df.empty:
-            return pd.DataFrame(columns=expected)
-
-    return df
-
-
-def run_gru_mood_training_action() -> tuple[bool, str]:
-    cmd = [sys.executable, "-m", "pipelines.training.train_whatsapp_gru_mood_swings"]
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(BASE_DIR),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        return False, f"Failed to launch GRU training command: {exc}"
-
-    stdout = (proc.stdout or "").strip()
-    stderr = (proc.stderr or "").strip()
-    combined = "\n".join(part for part in [stdout, stderr] if part)
-    if not combined:
-        combined = "No output captured from training process."
-    return proc.returncode == 0, combined
 
 
 def pipeline_steps_for_ui() -> list[dict[str, str]]:
@@ -2225,7 +2002,7 @@ def pipeline_steps_for_ui() -> list[dict[str, str]]:
             {"step_id": "train_user_behavior_gnn", "description": "Train user behavior GNN", "command": f"{py} -m pipelines.training.train_user_behavior_gnn"},
             {"step_id": "train_xgb_shap_sentiment", "description": "Train XGBoost + SHAP explainability", "command": f"{py} -m pipelines.training.train_xgb_shap_sentiment --allow_pseudo_fallback"},
             {"step_id": "build_user_personas", "description": "Build user personas", "command": f"{py} -m pipelines.training.build_user_personas"},
-            {"step_id": "train_whatsapp_gru_mood_swings", "description": "Train GRU mood swing model", "command": f"{py} -m pipelines.training.train_whatsapp_gru_mood_swings"},
+
         ]
 
 
@@ -2273,10 +2050,7 @@ def infer_auto_pipeline_start_step() -> str | None:
         PERSONA_PROFILE_PATH,
         PERSONA_IMPORTANCE_PATH,
     ]
-    gru_required = [
-        GRU_MOOD_SWING_SUMMARY_PATH,
-        GRU_MOOD_TRAINING_REPORT_PATH,
-    ]
+
 
     if any(not p.exists() for p in gnn_required):
         return "train_user_behavior_gnn"
@@ -2284,8 +2058,7 @@ def infer_auto_pipeline_start_step() -> str | None:
         return "train_xgb_shap_sentiment"
     if any(not p.exists() for p in persona_required):
         return "build_user_personas"
-    if any(not p.exists() for p in gru_required):
-        return "train_whatsapp_gru_mood_swings"
+
     return None
 
 

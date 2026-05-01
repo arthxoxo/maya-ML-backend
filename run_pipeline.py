@@ -82,7 +82,7 @@ STEP_CACHE_KEYS: dict[str, list[str]] = {
         "persona_feature_importance",
         "persona_user_feature_contributions",
     ],
-    "train_whatsapp_gru_mood_swings": ["gru_mood_swing_summary", "gru_mood_training_report"],
+
 }
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ STEP_UPSTREAM: dict[str, list[str]] = {
         "train_user_behavior_gnn",
         "train_graphsage_user_embeddings",
     ],
-    "train_whatsapp_gru_mood_swings": ["build_gnn_nodes_from_flink"],
+
     "monitor_pipeline_drift": [],
     "publish_dashboard_data_to_redis": [],
 }
@@ -285,11 +285,7 @@ def build_steps(include_redis_publish: bool, include_kafka_publish: bool) -> lis
             description="Build user personas and SHAP explainability outputs → artifacts/persona/",
             cmd=[py, "-m", "pipelines.training.build_user_personas"],
         ),
-        Step(
-            id="train_whatsapp_gru_mood_swings",
-            description="Train GRU mood swing model from WhatsApp message sequences",
-            cmd=[py, "-m", "pipelines.training.train_whatsapp_gru_mood_swings"],
-        ),
+
         Step(
             id="monitor_pipeline_drift",
             description="Stage 7: compare current artifacts vs previous run and generate drift report",

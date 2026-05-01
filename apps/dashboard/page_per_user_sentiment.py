@@ -22,102 +22,18 @@ from apps.dashboard.data_loaders import (
     build_latest_interaction_scores,
     build_response_sentiment_timeline,
     build_representative_statements,
-    load_gru_mood_swing_summary,
-    load_gru_mood_training_report,
-    run_gru_mood_training_action,
+    load_sentiment_table,
+    build_task_importance,
+    build_latest_interaction_scores,
+    build_response_sentiment_timeline,
+    build_representative_statements,
 )
 
 
 def render(wa: pd.DataFrame, user_directory: pd.DataFrame, name_map: Dict[int, str], refresh_nonce: str) -> None:
     """Render the Per-User Sentiment Analysis page."""
 
-    st.subheader("Mood Swing Model (GRU)")
-    st.caption("Train a GRU on per-user sentiment sequences to estimate mood volatility over time.")
-    action_col, report_col = st.columns([1, 2])
-    with action_col:
-        if st.button("Train GRU Mood Swing Model", width="stretch"):
-            with st.spinner("Training GRU mood model on sentiment timeline..."):
-                ok, logs = run_gru_mood_training_action()
-            load_gru_mood_swing_summary.clear()
-            load_gru_mood_training_report.clear()
-            if ok:
-                st.success("GRU training completed. Mood-swing artifacts were updated.")
-            else:
-                st.error("GRU training failed. Check logs below.")
-            st.code(logs[-4000:])
 
-    with report_col:
-        report = load_gru_mood_training_report()
-        if not report.empty:
-            rr = report.iloc[0]
-            g1, g2, g3 = st.columns(3)
-            g1.metric("Eligible Users", f"{int(pd.to_numeric(rr.get('eligible_users', 0), errors='coerce') or 0)}")
-            g2.metric("Train Samples", f"{int(pd.to_numeric(rr.get('train_samples', 0), errors='coerce') or 0)}")
-            g3.metric("Validation MSE", f"{float(pd.to_numeric(rr.get('val_mse', 0.0), errors='coerce') or 0.0):.4f}")
-        else:
-            st.info("No GRU training report found yet. Run the training action to generate it.")
-
-    mood_summary = load_gru_mood_swing_summary()
-    if not mood_summary.empty:
-        mood_view = mood_summary.copy()
-        mood_view["user"] = mood_view["user_id"].map(name_map).fillna("User (" + mood_view["user_id"].astype(str) + ")")
-        mood_view["user_short"] = mood_view["user"].apply(lambda s: shorten_user_label(s, 26))
-        risk_targets = {"High": 7, "Medium": 7, "Low": 6}
-        sampled_parts: list[pd.DataFrame] = []
-        for risk_label, target_count in risk_targets.items():
-            risk_slice = mood_view[mood_view["risk_flag"].astype(str).str.strip().eq(risk_label)].copy()
-            if risk_slice.empty:
-                continue
-            ascending = risk_label == "Low"
-            sampled_parts.append(
-                risk_slice.sort_values("mood_swing_index", ascending=ascending).head(min(target_count, len(risk_slice)))
-            )
-
-        if sampled_parts:
-            mood_chart_df = pd.concat(sampled_parts, ignore_index=True)
-        else:
-            mood_chart_df = mood_view.sort_values("mood_swing_index", ascending=False).head(min(20, len(mood_view)))
-
-        mood_chart_df = (
-            mood_chart_df
-            .drop_duplicates(subset=["user_id"])
-            .sort_values("mood_swing_index", ascending=True)
-        )
-
-        fig_mood = px.bar(
-            mood_chart_df,
-            x="mood_swing_index",
-            y="user_short",
-            orientation="h",
-            color="risk_flag",
-            color_discrete_map=RISK_COLORS,
-            hover_data=["messages", "actual_volatility", "predicted_volatility", "prediction_mae", "trend"],
-            title="GRU Mood Swing Index: High, Medium, And Low Examples",
-        )
-        style_chart(fig_mood, height=460, x_title="Mood Swing Index", y_title="User")
-        st.plotly_chart(fig_mood, width="stretch")
-
-        cols = [
-            c
-            for c in [
-                "user",
-                "user_id",
-                "messages",
-                "mood_swing_index",
-                "risk_flag",
-                "trend",
-                "prediction_mae",
-                "recommendation",
-            ]
-            if c in mood_view.columns
-        ]
-        st.dataframe(
-            mood_view[cols].sort_values("mood_swing_index", ascending=False),
-            width="stretch",
-            height=320,
-        )
-    else:
-        st.info("No GRU mood-swing summary found yet. Train the model to populate user-level mood analysis.")
 
     per_user = wa.groupby("user_id", as_index=False).agg(
         avg_sentiment=("sentiment_score", "mean"),

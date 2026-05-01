@@ -83,8 +83,7 @@ SENTIMENT_SCORES_PATH = _first_existing_path(
     SENTIMENT_ARTIFACT_DIR / "sentiment_scores.csv",
     BASE_DIR / "sentiment_scores.csv",
 )
-GRU_MOOD_SWING_SUMMARY_PATH = SENTIMENT_ARTIFACT_DIR / "gru_mood_swing_summary.csv"
-GRU_MOOD_TRAINING_REPORT_PATH = SENTIMENT_ARTIFACT_DIR / "gru_mood_training_report.csv"
+
 SESSIONS_SOURCE_PATH = _first_existing_path(
     SECRET_DATA_DIR / "sessions.csv",
     BASE_DIR / "sessions.csv",
@@ -1049,7 +1048,7 @@ def get_dashboard_last_updated_label() -> str:
         XGB_PREDICTIONS_PATH,
         PERSONA_TABLE_PATH,
         SENTIMENT_SCORES_PATH,
-        GRU_MOOD_SWING_SUMMARY_PATH,
+
     ]
     existing = [p for p in tracked_files if p.exists()]
     if not existing:

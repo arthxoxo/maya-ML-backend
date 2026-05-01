@@ -68,11 +68,7 @@ def main() -> None:
             "Per-User Sentiment Analysis",
         ],
     )
-    st.sidebar.divider()
 
-    if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
 
     # Route to appropriate page module
     if page == "Global Insights":

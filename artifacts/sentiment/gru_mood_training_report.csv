@@ -1,2 +1,0 @@
-total_messages,eligible_users,sequence_length,hidden_size,epochs,batch_size,train_samples,val_samples,train_loss,val_mse,val_baseline_mse,training_mode,training_ran,val_mse_vs_baseline_pct,validation_split_strategy
-7591,98,8,64,50,64,4656,1212,,0.1647610068321228,0.14050714671611786,loaded_checkpoint,False,-17.261655853710916,per_user_chronological_80_20
